@@ -10,10 +10,28 @@ import org.example.data.api.AnthropicApi
 import org.example.data.repository.AnthropicChatRepositoryImpl
 import org.example.domain.models.ChatMessage
 import org.example.domain.usecase.SendMessageUseCase
+import org.example.presentation.ConsoleInput
 
 fun main() = runBlocking {
-    val apiKey = System.getenv("ANTHROPIC_API_KEY")
-        ?: error("Переменная окружения ANTHROPIC_API_KEY не установлена")
+    val console = ConsoleInput()
+
+    // 1. Получаем API ключ
+    val envKey = System.getenv("ANTHROPIC_API_KEY")
+    val apiKey = if (!envKey.isNullOrBlank()) {
+        envKey
+    } else {
+        val fromInput = console.readLine(
+            "Переменная ANTHROPIC_API_KEY не установлена.\n" +
+                    "Введите API ключ Anthropic вручную: "
+        )?.trim()
+
+        if (fromInput.isNullOrEmpty()) {
+            println("\nAPI ключ не указан или ввод недоступен. Завершаю работу.")
+            return@runBlocking
+        } else {
+            fromInput
+        }
+    }
 
     val json = Json {
         ignoreUnknownKeys = true
@@ -41,21 +59,21 @@ fun main() = runBlocking {
     val sendMessageUseCase = SendMessageUseCase(chatRepository)
 
     // История диалога (domain-модель)
+    println("Anthropic Kotlin Chat (clean). Введите 'exit' для выхода.\n")
+
     val conversation = mutableListOf<ChatMessage>()
 
-    println("Anthropic Kotlin Chat (clean). Введите 'exit' для выхода.")
-    println()
-
     while (true) {
-        print("user >> ")
-        val line = readlnOrNull() ?: break
-        if (line.lowercase() == "exit") break
-        if (line.isBlank()) continue
+        val line = console.readLine("user >> ") ?: run {
+            println("\nВвод недоступен (EOF/ошибка). Выход из программы.")
+            break
+        }
 
-        conversation += ChatMessage(
-            role = "user",
-            content = line
-        )
+        val text = line.trim()
+        if (text.equals("exit", ignoreCase = true)) break
+        if (text.isEmpty()) continue
+
+        conversation += ChatMessage(role = "user", content = text)
 
         try {
             val answer = sendMessageUseCase(conversation)
@@ -68,11 +86,9 @@ fun main() = runBlocking {
             println()
             println("assistant >> ${answer.text}")
             println()
-
         } catch (t: Throwable) {
             println()
             println("Ошибка при запросе: ${t.message}")
-            t.printStackTrace()
             println()
         }
     }
