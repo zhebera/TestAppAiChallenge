@@ -7,5 +7,6 @@ import kotlinx.serialization.Serializable
 data class AnthropicRequestDto(
     val model: String,
     val messages: List<AnthropicMessageDto>,
-    @SerialName("max_tokens") val maxTokens: Int = 1024,
+    val system: String? = null,
+    @SerialName("max_tokens") val maxTokens: Int,
 )

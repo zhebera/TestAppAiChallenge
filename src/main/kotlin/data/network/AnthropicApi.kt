@@ -28,11 +28,13 @@ class AnthropicApi(
     suspend fun sendMessages(
         model: String,
         messages: List<AnthropicMessageDto>,
-        maxTokens: Int
+        system: String?,
+        maxTokens: Int,
     ): AnthropicResponseDto {
         val requestBody = AnthropicRequestDto(
             model = model,
             messages = messages,
+            system = system,
             maxTokens = maxTokens,
         )
 
@@ -44,10 +46,8 @@ class AnthropicApi(
         }
 
         val bodyText = httpResponse.bodyAsText()
-
 //        println("Anthropic raw response: ${httpResponse.status} | $bodyText")
 
-        // Сначала просто парсим JSON как дерево
         val root = json.parseToJsonElement(bodyText).jsonObject
         val type = root["type"]?.jsonPrimitive?.content
 
@@ -57,7 +57,6 @@ class AnthropicApi(
                 "Anthropic error (${error.error.type}): ${error.error.message} [request_id=${error.requestId}]"
             )
         }
-
-        return json.decodeFromJsonElement<AnthropicResponseDto>(root)
+        return json.decodeFromString(AnthropicResponseDto.serializer(), bodyText)
     }
 }

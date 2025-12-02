@@ -1,11 +1,11 @@
 package org.example.data.repository
 
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicApi
 import org.example.data.dto.AnthropicMessageDto
 import org.example.domain.models.AssistantAnswer
 import org.example.domain.models.ChatMessage
+import org.example.domain.models.StructuredAnswer
 
 interface ChatRepository {
     suspend fun sendConversation(
@@ -22,34 +22,55 @@ class AnthropicChatRepositoryImpl(
     private val modelName: String,
 ) : ChatRepository {
 
+    private val prettyJson = Json {
+        prettyPrint = true
+        encodeDefaults = true
+    }
+
     override suspend fun sendConversation(
         messages: List<ChatMessage>
     ): AssistantAnswer {
-        // Маппим доменные сообщения в DTO
-        val dtoMessages = messages.map {
-            AnthropicMessageDto(
-                role = it.role,
-                content = it.content
-            )
-        }
+        val systemPrompt = messages.firstOrNull { it.role == "system" }?.content
+
+        val dtoMessages = messages
+            .filter { it.role != "system" }
+            .map {
+                AnthropicMessageDto(
+                    role = it.role,
+                    content = it.content
+                )
+            }
 
         val responseDto = api.sendMessages(
             model = modelName,
             messages = dtoMessages,
-            maxTokens = 1024,
+            system = systemPrompt,
+            maxTokens = 1024
         )
 
-        // Собираем текст ассистента из блоков
-        val assistantText = responseDto.content
+        val rawText = responseDto.content
             .filter { it.type == "text" && it.text != null }
-            .joinToString(separator = "") { it.text!! }
+            .joinToString(separator = "") { it.text ?: "" }
 
-        val rawJson = json.encodeToString(responseDto)
+        val structured: StructuredAnswer = try {
+            json.decodeFromString(StructuredAnswer.serializer(), rawText)
+        } catch (t: Throwable) {
+            StructuredAnswer(
+                answer = rawText,
+                details = "Модель вернула невалидный JSON по ожидаемому формату. Показан сырой текст.",
+                language = "unknown"
+            )
+        }
+
+        val formattedJson = prettyJson.encodeToString(
+            StructuredAnswer.serializer(),
+            structured
+        )
 
         return AssistantAnswer(
-            text = assistantText,
-            model = responseDto.model.toString(),
-            rawJson = rawJson
+            text = structured.answer,
+            model = responseDto.model ?: "unknown",
+            rawJson = formattedJson,
         )
     }
 }

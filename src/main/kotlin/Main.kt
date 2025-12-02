@@ -12,56 +12,111 @@ import org.example.domain.models.ChatMessage
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
 
+// --- Константы и конфигурация ---
+
+private const val MODEL_NAME = "claude-sonnet-4-20250514"
+
+private val SYSTEM_FORMAT_PROMPT = """
+    Ты — полезный ассистент.
+
+    Всегда отвечай строго в формате JSON БЕЗ лишнего текста до или после.
+
+    СТРОГИЕ ПРАВИЛА ФОРМАТА:
+    - НЕЛЬЗЯ использовать markdown-блоки вида ```json ... ```
+    - НЕЛЬЗЯ использовать обычные блоки ``` ... ```
+    - НЕЛЬЗЯ экранировать JSON внутри строки — должен быть настоящий JSON-объект, начинающийся с { и заканчивающийся }.
+    - НЕЛЬЗЯ добавлять текст до или после JSON.
+    - Ответ должен быть СТРОГО валидным JSON.
+
+    Схема ответа:
+
+    {
+      "answer": "строка",
+      "details": "строка",
+      "language": "строка"
+    }
+""".trimIndent()
+
 fun main() = runBlocking {
     val console = ConsoleInput()
 
-    // 1. Получаем API ключ
-    val envKey = System.getenv("ANTHROPIC_API_KEY")
-    val apiKey = if (!envKey.isNullOrBlank()) {
-        envKey
-    } else {
-        val fromInput = console.readLine(
-            "Переменная ANTHROPIC_API_KEY не установлена.\n" +
-                    "Введите API ключ Anthropic вручную: "
-        )?.trim()
+    val apiKey = resolveApiKey(console) ?: return@runBlocking
 
-        if (fromInput.isNullOrEmpty()) {
-            println("\nAPI ключ не указан или ввод недоступен. Завершаю работу.")
-            return@runBlocking
-        } else {
-            fromInput
-        }
+    val json = buildJsonConfig()
+    val client = buildHttpClient(json)
+
+    try {
+        val sendMessageUseCase = buildSendMessageUseCase(client, json, apiKey)
+        runChatLoop(console, sendMessageUseCase)
+    } finally {
+        client.close()
     }
+}
 
-    val json = Json {
+
+private fun resolveApiKey(console: ConsoleInput): String? {
+    val envKey = System.getenv("ANTHROPIC_API_KEY")
+    if (!envKey.isNullOrBlank()) return envKey
+
+    val fromInput = console.readLine(
+        "Переменная ANTHROPIC_API_KEY не установлена.\n" +
+                "Введите API ключ Anthropic вручную: "
+    )?.trim()
+
+    return if (fromInput.isNullOrEmpty()) {
+        println("\nAPI ключ не указан или ввод недоступен. Завершаю работу.")
+        null
+    } else {
+        fromInput
+    }
+}
+
+private fun buildJsonConfig(): Json =
+    Json {
         ignoreUnknownKeys = true
         prettyPrint = false
         encodeDefaults = true
     }
 
-    val client = HttpClient(CIO) {
+private fun buildHttpClient(json: Json): HttpClient =
+    HttpClient(CIO) {
         install(ContentNegotiation) {
             json(json)
         }
     }
 
+private fun buildSendMessageUseCase(
+    client: HttpClient,
+    json: Json,
+    apiKey: String
+): SendMessageUseCase {
     val api = AnthropicApi(
         client = client,
         json = json,
         apiKey = apiKey
     )
 
-    val chatRepository = AnthropicChatRepositoryImpl(
+    val repository = AnthropicChatRepositoryImpl(
         api = api,
         json = json,
-        modelName = "claude-sonnet-4-20250514"
+        modelName = MODEL_NAME
     )
-    val sendMessageUseCase = SendMessageUseCase(chatRepository)
 
-    // История диалога (domain-модель)
+    return SendMessageUseCase(repository)
+}
+
+private suspend fun runChatLoop(
+    console: ConsoleInput,
+    sendMessageUseCase: SendMessageUseCase
+) {
     println("Anthropic Kotlin Chat (clean). Введите 'exit' для выхода.\n")
 
-    val conversation = mutableListOf<ChatMessage>()
+    val conversation = mutableListOf(
+        ChatMessage(
+            role = "system",
+            content = SYSTEM_FORMAT_PROMPT
+        )
+    )
 
     while (true) {
         val line = console.readLine("user >> ") ?: run {
@@ -84,7 +139,7 @@ fun main() = runBlocking {
             )
 
             println()
-            println("assistant >> ${answer.text}")
+            println(answer.rawJson)
             println()
         } catch (t: Throwable) {
             println()
@@ -92,6 +147,4 @@ fun main() = runBlocking {
             println()
         }
     }
-
-    client.close()
 }
