@@ -45,20 +45,28 @@ class AnthropicChatRepositoryImpl(
             model = modelName,
             messages = dtoMessages,
             system = systemPrompt,
-            maxTokens = 1024
+            maxTokens = 2048,
         )
 
         val rawText = responseDto.content
             .filter { it.type == "text" && it.text != null }
             .joinToString(separator = "") { it.text ?: "" }
+            .trim()
+
+        // на всякий случай убираем возможные ```json / ```
+        val cleaned = rawText
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
 
         val structured: StructuredAnswer = try {
-            json.decodeFromString(StructuredAnswer.serializer(), rawText)
+            json.decodeFromString(StructuredAnswer.serializer(), cleaned)
         } catch (t: Throwable) {
             StructuredAnswer(
-                answer = rawText,
-                details = "Модель вернула невалидный JSON по ожидаемому формату. Показан сырой текст.",
-                language = "unknown"
+                phase = "questions",
+                message = cleaned,
+                document = "",
             )
         }
 
@@ -68,9 +76,11 @@ class AnthropicChatRepositoryImpl(
         )
 
         return AssistantAnswer(
-            text = structured.answer,
+            text = structured.message,
             model = responseDto.model ?: "unknown",
             rawJson = formattedJson,
+            phase = structured.phase,
+            document = structured.document,
         )
     }
 }

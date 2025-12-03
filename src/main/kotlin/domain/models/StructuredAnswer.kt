@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class StructuredAnswer(
-    val answer: String,
-    val details: String,
-    val language: String,
+    val phase: String,
+    val message: String,
+    val document: String,
 )

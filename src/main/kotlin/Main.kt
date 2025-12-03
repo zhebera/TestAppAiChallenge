@@ -2,6 +2,7 @@ package org.example
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
@@ -11,30 +12,56 @@ import org.example.data.repository.AnthropicChatRepositoryImpl
 import org.example.domain.models.ChatMessage
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
+import org.example.utils.prettyOutput
 
 // --- Константы и конфигурация ---
 
 private const val MODEL_NAME = "claude-sonnet-4-20250514"
 
 private val SYSTEM_FORMAT_PROMPT = """
-    Ты — полезный ассистент.
-
+    Ты — помощник аналитика. Твоя задача — по ходу диалога с пользователем собрать достаточно информации о проекте, а затем выдать ему готовое техническое задание (ТЗ).
+    
+    ТВОЁ ПОВЕДЕНИЕ:
+    
+    1. Режим вопросов (phase = "questions")
+    - В начале диалога выясни, что за проект и для чего он нужен.
+    - Далее веди себя как опытный аналитик:
+      - сам определяй, какие аспекты проекта нужно уточнить (бизнес-цели, пользователи, сценарии, ограничения, риски и т.д.);
+      - задавай осмысленные, последовательные вопросы;
+      - иногда кратко резюмируй, что уже понял.
+    - На каждом шаге думай про себя: "Хватит ли мне текущей информации, чтобы написать полезное и понятное ТЗ? Чего мне ещё не хватает?".
+    - Пока чувствуешь, что есть ещё важные пробелы — оставайся в режиме вопросов (phase = "questions").
+    
+    2. Режим готового ТЗ (phase = "ready")
+    - Когда, по твоему мнению, информации уже достаточно, чтобы написать полезное ТЗ:
+      - переключись на phase = "ready";
+      - в поле "message" кратко сообщи, что готов представить итоговый документ (например, "ГОТОВОЕ ТЗ:");
+      - в поле "tz_document" сформируй полный текст ТЗ на русском языке.
+    - Структуру ТЗ выбери сам как аналитик, но сделай документ понятным и логичным: от общего к частному (описание проекта, цели, пользователи, основные функции, ограничения и т.д.).
+    - В режиме "ready" НЕ задавай больше вопросов, только выдавай итоговый документ.
+    - Старайся делать ТЗ максимально компактным и практичным:
+        • не больше ~800–1200 слов;
+        • не расписывай очевидные вещи;
+        • в каждом разделе делай 3–7 ключевых пунктов, а не 20.
+    
+    ФОРМАТ ОТВЕТА (ВСЕГДА):
+    
     Всегда отвечай строго в формате JSON БЕЗ лишнего текста до или после.
-
-    СТРОГИЕ ПРАВИЛА ФОРМАТА:
-    - НЕЛЬЗЯ использовать markdown-блоки вида ```json ... ```
-    - НЕЛЬЗЯ использовать обычные блоки ``` ... ```
-    - НЕЛЬЗЯ экранировать JSON внутри строки — должен быть настоящий JSON-объект, начинающийся с { и заканчивающийся }.
-    - НЕЛЬЗЯ добавлять текст до или после JSON.
-    - Ответ должен быть СТРОГО валидным JSON.
-
-    Схема ответа:
-
+    
+    Схема JSON-ответа:
+    
     {
-      "answer": "строка",
-      "details": "строка",
-      "language": "строка"
+      "phase": "questions" | "ready",
+      "message": "строка — что сказать пользователю сейчас (вопрос/пояснение или фраза перед ТЗ)",
+      "document": "строка — полный текст ТЗ; пустая строка, пока ТЗ ещё не сформировано"
     }
+    
+    СТРОГИЕ ПРАВИЛА:
+    - НЕЛЬЗЯ использовать markdown-блоки вида ```json ... ``` или любые ``` ... ``` блоки.
+    - НЕЛЬЗЯ добавлять текст вне JSON-объекта.
+    - НЕЛЬЗЯ экранировать JSON целиком в строке. Ответ должен быть настоящим JSON-объектом, начинающимся с { и заканчивающимся }.
+    - Пока ты уточняешь требования — устанавливай "phase": "questions" и оставляй "document": "" (пустая строка).
+    - Когда считаешь, что данных достаточно для итогового ТЗ, устанавливай "phase": "ready" и заполняй "document" полным текстом ТЗ.
 """.trimIndent()
 
 fun main() = runBlocking {
@@ -80,8 +107,15 @@ private fun buildJsonConfig(): Json =
 
 private fun buildHttpClient(json: Json): HttpClient =
     HttpClient(CIO) {
+
         install(ContentNegotiation) {
             json(json)
+        }
+
+        install(HttpTimeout) {
+            requestTimeoutMillis = 150_000
+            connectTimeoutMillis = 100_000
+            socketTimeoutMillis = 150_000
         }
     }
 
@@ -138,9 +172,20 @@ private suspend fun runChatLoop(
                 content = answer.text
             )
 
-            println()
-            println(answer.rawJson)
-            println()
+            if (answer.phase == "ready" && answer.document.isNotBlank()) {
+                println()
+                println("==== ГОТОВОЕ ТЗ ====")
+                println()
+                println(prettyOutput(answer.document, maxWidth = 150))
+                println()
+                println("==== КОНЕЦ ТЗ ====")
+                println()
+            } else {
+                println()
+                println(prettyOutput(answer.text, maxWidth = 150))
+                println()
+            }
+
         } catch (t: Throwable) {
             println()
             println("Ошибка при запросе: ${t.message}")
