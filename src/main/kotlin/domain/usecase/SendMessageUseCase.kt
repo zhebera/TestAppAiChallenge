@@ -1,16 +1,15 @@
 package org.example.domain.usecase
 
 import org.example.data.repository.ChatRepository
-import org.example.domain.models.AssistantAnswer
-import org.example.domain.models.ChatMessage
+import org.example.domain.models.LlmAnswer
+import org.example.domain.models.LlmMessage
 
-/**
- * UseCase, который отправляет историю диалога и получает ответ ассистента.
- */
 class SendMessageUseCase(
-    private val chatRepository: ChatRepository
+    private val repository: ChatRepository
 ) {
     suspend operator fun invoke(
-        conversation: List<ChatMessage>
-    ): AssistantAnswer = chatRepository.sendConversation(conversation)
+        conversation: List<LlmMessage>
+    ): List<LlmAnswer> {
+        return repository.send(conversation)
+    }
 }

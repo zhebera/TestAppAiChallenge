@@ -1,86 +1,83 @@
 package org.example.data.repository
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.example.data.api.AnthropicApi
-import org.example.data.dto.AnthropicMessageDto
-import org.example.domain.models.AssistantAnswer
-import org.example.domain.models.ChatMessage
-import org.example.domain.models.StructuredAnswer
+import org.example.domain.models.LlmMessage
+import org.example.data.dto.LlmRequest
+import org.example.data.network.LlmClient
+import org.example.domain.models.ChatRole
+import org.example.domain.models.LlmAnswer
 
 interface ChatRepository {
-    suspend fun sendConversation(
-        messages: List<ChatMessage>
-    ): AssistantAnswer
+
+    suspend fun send(
+        conversation: List<LlmMessage>,
+        maxTokens: Int = 1024,
+        temperature: Double? = null,
+    ): List<LlmAnswer>
 }
 
-/**
- * Реализация ChatRepository через AnthropicApi.
- */
-class AnthropicChatRepositoryImpl(
-    private val api: AnthropicApi,
+class ChatRepositoryImpl(
+    private val clients: List<LlmClient>,
     private val json: Json,
-    private val modelName: String,
+    private val defaultMaxTokens: Int = 2048,
+    private val defaultTemperature: Double? = null,
 ) : ChatRepository {
 
-    private val prettyJson = Json {
-        prettyPrint = true
-        encodeDefaults = true
-    }
+    @Serializable
+    private data class StructuredPayload(
+        val phase: String? = null,
+        val document: String? = null,
+        val message: String,
+    )
 
-    override suspend fun sendConversation(
-        messages: List<ChatMessage>
-    ): AssistantAnswer {
-        val systemPrompt = messages.firstOrNull { it.role == "system" }?.content
+    override suspend fun send(
+        conversation: List<LlmMessage>,
+        maxTokens: Int,
+        temperature: Double?
+    ): List<LlmAnswer> = coroutineScope {
+        val dialogMessages = conversation.filter { it.role != ChatRole.SYSTEM }
 
-        val dtoMessages = messages
-            .filter { it.role != "system" }
-            .map {
-                AnthropicMessageDto(
-                    role = it.role,
-                    content = it.content
+        clients.map { client ->
+            async {
+                val request = LlmRequest(
+                    model = client.model,
+                    messages = dialogMessages,
+                    systemPrompt = client.systemPrompt,
+                    maxTokens = maxTokens,
+                    temperature = temperature ?: defaultTemperature
+                )
+
+                val response = client.send(request)
+
+                val cleanedText = response.text
+                    .trim()
+                    .removePrefix("```json")
+                    .removePrefix("```")
+                    .removeSuffix("```")
+                    .trim()
+
+                val structured = try {
+                    json.decodeFromString<StructuredPayload>(cleanedText)
+                } catch (_: Throwable) {
+                    StructuredPayload(
+                        phase = "unknown",
+                        document = "",
+                        message = cleanedText
+                    )
+                }
+
+                LlmAnswer(
+                    model = response.model,
+                    rawJson = response.rawJson,
+                    phase = structured.phase ?: "unknown",
+                    document = structured.document.orEmpty(),
+                    message = structured.message,
                 )
             }
-
-        val responseDto = api.sendMessages(
-            model = modelName,
-            messages = dtoMessages,
-            system = systemPrompt,
-            maxTokens = 2048,
-        )
-
-        val rawText = responseDto.content
-            .filter { it.type == "text" && it.text != null }
-            .joinToString(separator = "") { it.text ?: "" }
-            .trim()
-
-        // на всякий случай убираем возможные ```json / ```
-        val cleaned = rawText
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
-
-        val structured: StructuredAnswer = try {
-            json.decodeFromString(StructuredAnswer.serializer(), cleaned)
-        } catch (t: Throwable) {
-            StructuredAnswer(
-                phase = "questions",
-                message = cleaned,
-                document = "",
-            )
-        }
-
-        val formattedJson = prettyJson.encodeToString(
-            StructuredAnswer.serializer(),
-            structured
-        )
-
-        return AssistantAnswer(
-            text = structured.message,
-            model = responseDto.model ?: "unknown",
-            rawJson = formattedJson,
-            phase = structured.phase,
-            document = structured.document,
-        )
+        }.awaitAll()
     }
 }

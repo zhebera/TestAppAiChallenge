@@ -3,8 +3,10 @@ package org.example.domain.models
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class StructuredAnswer(
+data class LlmAnswer(
+    val model: String,
+    val rawJson: String,
     val phase: String,
-    val message: String,
     val document: String,
+    val message: String,
 )
