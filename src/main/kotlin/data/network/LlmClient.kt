@@ -8,7 +8,7 @@ import org.example.data.dto.LlmResponse
  */
 interface LlmClient {
     val model: String
-    val systemPrompt: String?
+//    val systemPrompt: String?
 
     suspend fun send(request: LlmRequest): LlmResponse
 }

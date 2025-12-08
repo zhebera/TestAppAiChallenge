@@ -16,8 +16,8 @@ import org.example.domain.models.LlmMessage
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
 import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC
-import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC_TEACHER
-import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC_TOKAR
+import org.example.utils.SYSTEM_FORMAT_PROMPT_PIRATE
+import org.example.utils.SYSTEM_FORMAT_PROMPT_TOKAR
 import org.example.utils.prettyOutput
 
 // --- Константы и конфигурация ---
@@ -89,27 +89,10 @@ private fun buildSendMessageUseCase(
         json = json,
         apiKey = apiKey,
         model = CLAUDE_SONNET_MODEL_NAME,
-        systemPrompt = SYSTEM_FORMAT_PROMPT_LOGIC,
+//        systemPrompt = SYSTEM_FORMAT_PROMPT_LOGIC,
     )
 
-    val claudeHaikuClient = AnthropicClient(
-        http = client,
-        json = json,
-        apiKey = apiKey,
-        model = CLAUDE_HAIKU_MODEL_NAME,
-        systemPrompt = SYSTEM_FORMAT_PROMPT_LOGIC_TOKAR,
-    )
-
-    val claudeOpusClient = AnthropicClient(
-        http = client,
-        json = json,
-        apiKey = apiKey,
-        model = CLAUDE_OPUS_MODEL_NAME,
-        systemPrompt = SYSTEM_FORMAT_PROMPT_LOGIC_TEACHER,
-    )
-
-    val clients: List<LlmClient> = listOf(claudeSonnetClient, claudeHaikuClient, claudeOpusClient)
-//    val clients: List<LlmClient> = listOf(claudeSonnetClient)
+    val clients: List<LlmClient> = listOf(claudeSonnetClient)
 
     val chatRepository = ChatRepositoryImpl(
         clients = clients,
@@ -123,17 +106,17 @@ private suspend fun runChatLoop(
     console: ConsoleInput,
     sendMessageUseCase: SendMessageUseCase
 ) {
-    println("Multi-LLM Chat. Введите 'exit' для выхода.\n")
+    println("LLM Chat. Введите 'exit' для выхода.\n")
+    println("Для смены System Prompt введите '/changePrompt' ")
 
+    var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT_LOGIC
     val conversation = mutableListOf<LlmMessage>()
 
     while (true) {
-//        println("[DEBUG] Ждём ввода пользователя...")
         val line = console.readLine("user >> ") ?: run {
             println("\nВвод недоступен (EOF/ошибка). Выход из программы.")
             break
         }
-//        println("[DEBUG] Получена строка: '$line'")
 
         val text = line.trim()
         if (text.equals("exit", ignoreCase = true)) {
@@ -144,13 +127,60 @@ private suspend fun runChatLoop(
             continue
         }
 
+        if (text.equals("/changePrompt", ignoreCase = true)) {
+            println()
+            println("Выберите новый system prompt:")
+            println("1 - Логические задачи (SYSTEM_FORMAT_PROMPT_LOGIC)")
+            println("2 - Токарь (SYSTEM_FORMAT_PROMPT_TECH)")
+            println("3 - Пират 18 века (SYSTEM_FORMAT_PROMPT_TECH)")
+            println("4 - Свободный режим (без system prompt)")
+            print("Ваш выбор (1/2/3): ")
+
+            val choice = console.readLine("")?.trim()
+
+            currentSystemPrompt = when (choice) {
+                "1" -> SYSTEM_FORMAT_PROMPT_LOGIC
+                "2" -> SYSTEM_FORMAT_PROMPT_TOKAR
+                "3" -> SYSTEM_FORMAT_PROMPT_PIRATE
+                "4" -> ""
+                else -> {
+                    println("Неизвестный выбор, оставляю прежний system prompt.")
+                    currentSystemPrompt
+                }
+            }
+            val role = when (currentSystemPrompt) {
+                SYSTEM_FORMAT_PROMPT_LOGIC -> "помощник по решению логических, математических и головоломных задач"
+                SYSTEM_FORMAT_PROMPT_TOKAR -> "опытный токарь с 25-летним стажем, мастер по металлообработке"
+                SYSTEM_FORMAT_PROMPT_PIRATE -> "пират 18 века"
+                else -> ""
+            }
+
+            if (role.isNotEmpty()) {
+                println("System prompt обновлён на $role.")
+                println()
+            }
+            continue
+        }
+
         conversation += LlmMessage(
             role = ChatRole.USER,
             content = text
         )
 
         try {
-            val answers: List<LlmAnswer> = sendMessageUseCase(conversation)
+            val conversationWithSystem: List<LlmMessage> =
+                if (currentSystemPrompt.isNotBlank()) {
+                    listOf(
+                        LlmMessage(
+                            role = ChatRole.SYSTEM,
+                            content = currentSystemPrompt
+                        )
+                    ) + conversation
+                } else {
+                    conversation
+                }
+
+            val answers: List<LlmAnswer> = sendMessageUseCase(conversationWithSystem)
 
             val mainAnswer = answers.firstOrNull()
             if (mainAnswer != null) {
@@ -161,13 +191,7 @@ private suspend fun runChatLoop(
             }
 
             for (answer in answers) {
-//                println()
-//                println("=== ${answer.model} ===")
-//                println()
-
                 if (answer.phase == "ready" && answer.document.isNotBlank()) {
-                    println("ГОТОВОЕ РЕШЕНИЕ:")
-                    println()
                     println(prettyOutput(answer.document, maxWidth = 120))
                     println()
                 } else {

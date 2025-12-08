@@ -23,13 +23,13 @@ class AnthropicClient(
     private val json: Json,
     private val apiKey: String,
     override val model: String,
-    override val systemPrompt: String?,
+//    override val systemPrompt: String?,
 ) : LlmClient {
 
     override suspend fun send(request: LlmRequest): LlmResponse {
         val body = AnthropicRequestDto(
             model = model,
-            system = systemPrompt,
+            system = request.systemPrompt,
             maxTokens = request.maxTokens,
             messages = request.messages.map {
                 AnthropicMessageDto(it.role.name.toLowerCasePreservingASCIIRules(), it.content)

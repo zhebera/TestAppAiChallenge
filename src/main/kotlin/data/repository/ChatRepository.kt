@@ -39,6 +39,7 @@ class ChatRepositoryImpl(
         maxTokens: Int,
         temperature: Double?
     ): List<LlmAnswer> = coroutineScope {
+        val systemMessage = conversation.filter { it.role == ChatRole.SYSTEM }
         val dialogMessages = conversation.filter { it.role != ChatRole.SYSTEM }
 
         clients.map { client ->
@@ -46,7 +47,7 @@ class ChatRepositoryImpl(
                 val request = LlmRequest(
                     model = client.model,
                     messages = dialogMessages,
-                    systemPrompt = client.systemPrompt,
+                    systemPrompt = systemMessage.first().content,
                     maxTokens = maxTokens,
                     temperature = temperature ?: defaultTemperature
                 )
