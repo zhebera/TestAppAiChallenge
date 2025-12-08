@@ -8,8 +8,9 @@ class SendMessageUseCase(
     private val repository: ChatRepository
 ) {
     suspend operator fun invoke(
-        conversation: List<LlmMessage>
+        conversation: List<LlmMessage>,
+        temperature: Double? = null
     ): List<LlmAnswer> {
-        return repository.send(conversation)
+        return repository.send(conversation, temperature = temperature)
     }
 }

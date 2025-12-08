@@ -31,6 +31,7 @@ class AnthropicClient(
             model = model,
             system = request.systemPrompt,
             maxTokens = request.maxTokens,
+            temperature = request.temperature,
             messages = request.messages.map {
                 AnthropicMessageDto(it.role.name.toLowerCasePreservingASCIIRules(), it.content)
             }
@@ -66,7 +67,8 @@ data class AnthropicRequestDto(
     val model: String,
     val messages: List<AnthropicMessageDto>,
     val system: String? = null,
-    @SerialName("max_tokens") val maxTokens: Int
+    @SerialName("max_tokens") val maxTokens: Int,
+    val temperature: Double? = null
 )
 
 @Serializable

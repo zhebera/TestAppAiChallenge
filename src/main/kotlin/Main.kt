@@ -15,6 +15,7 @@ import org.example.domain.models.LlmAnswer
 import org.example.domain.models.LlmMessage
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
+import org.example.utils.SYSTEM_FORMAT_PROMPT
 import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC
 import org.example.utils.SYSTEM_FORMAT_PROMPT_PIRATE
 import org.example.utils.SYSTEM_FORMAT_PROMPT_TOKAR
@@ -62,7 +63,7 @@ private fun buildJsonConfig(): Json =
     Json {
         ignoreUnknownKeys = true
         prettyPrint = false
-        encodeDefaults = true
+        encodeDefaults = false
     }
 
 private fun buildHttpClient(json: Json): HttpClient =
@@ -89,7 +90,6 @@ private fun buildSendMessageUseCase(
         json = json,
         apiKey = apiKey,
         model = CLAUDE_SONNET_MODEL_NAME,
-//        systemPrompt = SYSTEM_FORMAT_PROMPT_LOGIC,
     )
 
     val clients: List<LlmClient> = listOf(claudeSonnetClient)
@@ -107,9 +107,11 @@ private suspend fun runChatLoop(
     sendMessageUseCase: SendMessageUseCase
 ) {
     println("LLM Chat. Введите 'exit' для выхода.\n")
-    println("Для смены System Prompt введите '/changePrompt' ")
+    println("Для смены System Prompt введите '/changePrompt'")
+    println("Для изменения temperature введите '/temperature' (0.0 - 1.0)")
 
-    var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT_LOGIC
+    var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT
+    var currentTemperature: Double? = null
     val conversation = mutableListOf<LlmMessage>()
 
     while (true) {
@@ -127,28 +129,50 @@ private suspend fun runChatLoop(
             continue
         }
 
+        if (text.startsWith("/temperature", ignoreCase = true)) {
+            val parts = text.split(" ", limit = 2)
+            if (parts.size == 2) {
+                val value = parts[1].toDoubleOrNull()
+                if (value != null && value in 0.0..1.0) {
+                    currentTemperature = value
+                    println("Temperature установлен: $value")
+                    println()
+                } else {
+                    println("Некорректное значение. Введите число от 0.0 до 1.0")
+                    println()
+                }
+            } else {
+                println("Текущий temperature: ${currentTemperature ?: "не установлен (по умолчанию)"}")
+                println("Использование: /temperature <значение от 0.0 до 1.0>")
+                println("Пример: /temperature 0.7")
+                println()
+            }
+            continue
+        }
+
         if (text.equals("/changePrompt", ignoreCase = true)) {
             println()
             println("Выберите новый system prompt:")
-            println("1 - Логические задачи (SYSTEM_FORMAT_PROMPT_LOGIC)")
-            println("2 - Токарь (SYSTEM_FORMAT_PROMPT_TECH)")
-            println("3 - Пират 18 века (SYSTEM_FORMAT_PROMPT_TECH)")
-            println("4 - Свободный режим (без system prompt)")
+            println("1 - Свободный режим (без system prompt)")
+            println("2 - Логические задачи (SYSTEM_FORMAT_PROMPT_LOGIC)")
+            println("3 - Токарь (SYSTEM_FORMAT_PROMPT_TECH)")
+            println("4 - Пират 18 века (SYSTEM_FORMAT_PROMPT_TECH)")
             print("Ваш выбор (1/2/3): ")
 
             val choice = console.readLine("")?.trim()
 
             currentSystemPrompt = when (choice) {
-                "1" -> SYSTEM_FORMAT_PROMPT_LOGIC
-                "2" -> SYSTEM_FORMAT_PROMPT_TOKAR
-                "3" -> SYSTEM_FORMAT_PROMPT_PIRATE
-                "4" -> ""
+                "1" -> SYSTEM_FORMAT_PROMPT
+                "2" -> SYSTEM_FORMAT_PROMPT_LOGIC
+                "3" -> SYSTEM_FORMAT_PROMPT_TOKAR
+                "4" -> SYSTEM_FORMAT_PROMPT_PIRATE
                 else -> {
                     println("Неизвестный выбор, оставляю прежний system prompt.")
                     currentSystemPrompt
                 }
             }
             val role = when (currentSystemPrompt) {
+                SYSTEM_FORMAT_PROMPT -> "Обычный ИИ помощник"
                 SYSTEM_FORMAT_PROMPT_LOGIC -> "помощник по решению логических, математических и головоломных задач"
                 SYSTEM_FORMAT_PROMPT_TOKAR -> "опытный токарь с 25-летним стажем, мастер по металлообработке"
                 SYSTEM_FORMAT_PROMPT_PIRATE -> "пират 18 века"
@@ -180,7 +204,7 @@ private suspend fun runChatLoop(
                     conversation
                 }
 
-            val answers: List<LlmAnswer> = sendMessageUseCase(conversationWithSystem)
+            val answers: List<LlmAnswer> = sendMessageUseCase(conversationWithSystem, currentTemperature)
 
             val mainAnswer = answers.firstOrNull()
             if (mainAnswer != null) {
