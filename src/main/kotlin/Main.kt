@@ -96,7 +96,6 @@ private fun buildSendMessageUseCase(
 
     val chatRepository = ChatRepositoryImpl(
         clients = clients,
-        json = json,
     )
 
     return SendMessageUseCase(chatRepository)

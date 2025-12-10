@@ -3,8 +3,7 @@ package org.example.data.repository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import org.example.data.converter.ToonConverter
 import org.example.domain.models.LlmMessage
 import org.example.data.dto.LlmRequest
 import org.example.data.network.LlmClient
@@ -22,17 +21,9 @@ interface ChatRepository {
 
 class ChatRepositoryImpl(
     private val clients: List<LlmClient>,
-    private val json: Json,
     private val defaultMaxTokens: Int = 2048,
     private val defaultTemperature: Double? = null,
 ) : ChatRepository {
-
-    @Serializable
-    private data class StructuredPayload(
-        val phase: String? = null,
-        val document: String? = null,
-        val message: String,
-    )
 
     override suspend fun send(
         conversation: List<LlmMessage>,
@@ -42,11 +33,19 @@ class ChatRepositoryImpl(
         val systemMessage = conversation.filter { it.role == ChatRole.SYSTEM }
         val dialogMessages = conversation.filter { it.role != ChatRole.SYSTEM }
 
+        // Convert dialog messages to TOON format before sending
+        val toonEncodedMessages = dialogMessages.map { message ->
+            LlmMessage(
+                role = message.role,
+                content = ToonConverter.encodeUserMessage(message.content)
+            )
+        }
+
         clients.map { client ->
             async {
                 val request = LlmRequest(
                     model = client.model,
-                    messages = dialogMessages,
+                    messages = toonEncodedMessages,
                     systemPrompt = systemMessage.first().content,
                     maxTokens = maxTokens,
                     temperature = temperature ?: defaultTemperature
@@ -54,26 +53,12 @@ class ChatRepositoryImpl(
 
                 val response = client.send(request)
 
-                val cleanedText = response.text
-                    .trim()
-                    .removePrefix("```json")
-                    .removePrefix("```")
-                    .removeSuffix("```")
-                    .trim()
-
-                val structured = try {
-                    json.decodeFromString<StructuredPayload>(cleanedText)
-                } catch (_: Throwable) {
-                    StructuredPayload(
-                        phase = "unknown",
-                        document = "",
-                        message = cleanedText
-                    )
-                }
+                // Use ToonConverter to parse TOON-formatted response
+                val structured = ToonConverter.extractPayload(response.text)
 
                 LlmAnswer(
                     model = response.model,
-                    rawJson = response.rawJson,
+                    rawToon = response.text,
                     phase = structured.phase ?: "unknown",
                     document = structured.document.orEmpty(),
                     message = structured.message,

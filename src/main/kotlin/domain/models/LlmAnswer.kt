@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class LlmAnswer(
     val model: String,
-    val rawJson: String,
+    val rawToon: String,
     val phase: String,
     val document: String,
     val message: String,
