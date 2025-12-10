@@ -58,6 +58,9 @@ class AnthropicClient(
             model = dto.model ?: request.model,
             text = combinedText.trim(),
             rawJson = combinedText,
+            inputTokens = dto.usage?.inputTokens,
+            outputTokens = dto.usage?.outputTokens,
+            stopReason = dto.stopReason,
         )
     }
 }
@@ -83,11 +86,19 @@ data class AnthropicResponseDto(
     val type: String,
     val role: String? = null,
     val model: String? = null,
-    val content: List<AnthropicContentBlockDto> = emptyList()
+    val content: List<AnthropicContentBlockDto> = emptyList(),
+    val usage: AnthropicUsageDto? = null,
+    @SerialName("stop_reason") val stopReason: String? = null,
 )
 
 @Serializable
 data class AnthropicContentBlockDto(
     val type: String,
     val text: String? = null
+)
+
+@Serializable
+data class AnthropicUsageDto(
+    @SerialName("input_tokens") val inputTokens: Int,
+    @SerialName("output_tokens") val outputTokens: Int,
 )

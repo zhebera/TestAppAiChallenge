@@ -9,4 +9,7 @@ data class LlmAnswer(
     val phase: String,
     val document: String,
     val message: String,
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val stopReason: String? = null,
 )

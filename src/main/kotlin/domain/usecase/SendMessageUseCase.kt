@@ -9,8 +9,9 @@ class SendMessageUseCase(
 ) {
     suspend operator fun invoke(
         conversation: List<LlmMessage>,
-        temperature: Double? = null
+        temperature: Double? = null,
+        maxTokens: Int = 1024
     ): List<LlmAnswer> {
-        return repository.send(conversation, temperature = temperature)
+        return repository.send(conversation, maxTokens = maxTokens, temperature = temperature)
     }
 }

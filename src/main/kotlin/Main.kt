@@ -109,9 +109,11 @@ private suspend fun runChatLoop(
     println("LLM Chat. Введите 'exit' для выхода.\n")
     println("Для смены System Prompt введите '/changePrompt'")
     println("Для изменения temperature введите '/temperature' (0.0 - 1.0)")
+    println("Для изменения max_tokens введите '/maxTokens' (например: /maxTokens 100)")
 
     var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT
     var currentTemperature: Double? = null
+    var currentMaxTokens: Int = 1024
     val conversation = mutableListOf<LlmMessage>()
 
     while (true) {
@@ -145,6 +147,29 @@ private suspend fun runChatLoop(
                 println("Текущий temperature: ${currentTemperature ?: "не установлен (по умолчанию)"}")
                 println("Использование: /temperature <значение от 0.0 до 1.0>")
                 println("Пример: /temperature 0.7")
+                println()
+            }
+            continue
+        }
+
+        if (text.startsWith("/maxTokens", ignoreCase = true)) {
+            val parts = text.split(" ", limit = 2)
+            if (parts.size == 2) {
+                val value = parts[1].toIntOrNull()
+                if (value != null && value > 0) {
+                    currentMaxTokens = value
+                    println("Max tokens установлен: $value")
+                    println("(Установите маленькое значение, например 50, чтобы увидеть stop_reason='max_tokens')")
+                    println()
+                } else {
+                    println("Некорректное значение. Введите положительное число")
+                    println()
+                }
+            } else {
+                println("Текущий max_tokens: $currentMaxTokens")
+                println("Использование: /maxTokens <число>")
+                println("Пример: /maxTokens 100  - маленький лимит (ответ будет обрезан)")
+                println("Пример: /maxTokens 4096 - большой лимит")
                 println()
             }
             continue
@@ -204,7 +229,11 @@ private suspend fun runChatLoop(
                     conversation
                 }
 
-            val answers: List<LlmAnswer> = sendMessageUseCase(conversationWithSystem, currentTemperature)
+            val answers: List<LlmAnswer> = sendMessageUseCase(
+                conversationWithSystem,
+                currentTemperature,
+                currentMaxTokens,
+            )
 
             val mainAnswer = answers.firstOrNull()
             if (mainAnswer != null) {
@@ -222,6 +251,9 @@ private suspend fun runChatLoop(
                     println(prettyOutput(answer.message, maxWidth = 120))
                     println()
                 }
+
+                // Отображение статистики токенов
+                printTokenStats(answer)
             }
         } catch (t: Throwable) {
             println()
@@ -229,4 +261,47 @@ private suspend fun runChatLoop(
             println()
         }
     }
+}
+
+private fun printTokenStats(answer: LlmAnswer) {
+    val inputTokens = answer.inputTokens
+    val outputTokens = answer.outputTokens
+    val stopReason = answer.stopReason
+
+    if (inputTokens == null && outputTokens == null && stopReason == null) {
+        return
+    }
+
+    println("─".repeat(60))
+    println("📊 Статистика токенов:")
+
+    if (inputTokens != null) {
+        println("   Input tokens (запрос):  $inputTokens")
+    }
+    if (outputTokens != null) {
+        println("   Output tokens (ответ):  $outputTokens")
+    }
+    if (inputTokens != null && outputTokens != null) {
+        println("   Всего токенов:          ${inputTokens + outputTokens}")
+    }
+    if (inputTokens != null && outputTokens != null) {
+        val inputCost = inputTokens * 0.003 / 1000  // $3 per MTok
+        val outputCost = outputTokens * 0.015 / 1000  // $15 per MTok
+        val totalCost = inputCost + outputCost
+
+        println("   Стоимость запроса: $${"%.6f".format(totalCost)}")
+    }
+
+    if (stopReason != null) {
+        val reasonDescription = when (stopReason) {
+            "end_turn" -> "✓ Модель завершила ответ естественно"
+            "max_tokens" -> "⚠️ Ответ обрезан - достигнут лимит max_tokens!"
+            "stop_sequence" -> "Остановлено по стоп-последовательности"
+            else -> stopReason
+        }
+        println("   Stop reason:            $reasonDescription")
+    }
+
+    println("─".repeat(60))
+    println()
 }

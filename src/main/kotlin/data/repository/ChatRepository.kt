@@ -77,6 +77,9 @@ class ChatRepositoryImpl(
                     phase = structured.phase ?: "unknown",
                     document = structured.document.orEmpty(),
                     message = structured.message,
+                    inputTokens = response.inputTokens,
+                    outputTokens = response.outputTokens,
+                    stopReason = response.stopReason,
                 )
             }
         }.awaitAll()
