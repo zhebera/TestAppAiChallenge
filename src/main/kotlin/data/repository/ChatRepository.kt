@@ -45,7 +45,7 @@ interface ChatRepository {
 
 class ChatRepositoryImpl(
     private val clients: List<LlmClient>,
-    private val defaultMaxTokens: Int = 2048,
+    private val defaultMaxTokens: Int = 1024,
     private val defaultTemperature: Double? = null,
 ) : ChatRepository {
 

@@ -6,7 +6,6 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
@@ -114,7 +113,7 @@ private suspend fun runChatLoop(
 
     var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT
     var currentTemperature: Double? = null
-    var currentMaxTokens: Int = 1024
+    var currentMaxTokens = 1024
     val conversation = mutableListOf<LlmMessage>()
 
     while (true) {
