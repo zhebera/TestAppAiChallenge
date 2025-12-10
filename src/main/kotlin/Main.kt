@@ -5,11 +5,14 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
 import org.example.data.network.LlmClient
 import org.example.data.repository.ChatRepositoryImpl
+import org.example.data.repository.StreamResult
 import org.example.domain.models.ChatRole
 import org.example.domain.models.LlmAnswer
 import org.example.domain.models.LlmMessage
@@ -19,7 +22,6 @@ import org.example.utils.SYSTEM_FORMAT_PROMPT
 import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC
 import org.example.utils.SYSTEM_FORMAT_PROMPT_PIRATE
 import org.example.utils.SYSTEM_FORMAT_PROMPT_TOKAR
-import org.example.utils.prettyOutput
 
 // --- Константы и конфигурация ---
 private const val CLAUDE_SONNET_MODEL_NAME = "claude-sonnet-4-20250514"
@@ -228,28 +230,55 @@ private suspend fun runChatLoop(
                     conversation
                 }
 
-            val answers: List<LlmAnswer> = sendMessageUseCase(
+            // Используем streaming для получения ответа
+            var finalAnswer: LlmAnswer? = null
+
+            // Собираем полный ответ, показывая индикатор загрузки
+            print("⏳ ")
+            System.out.flush()
+
+            sendMessageUseCase.stream(
                 conversationWithSystem,
                 currentTemperature,
                 currentMaxTokens,
-            )
-
-            val mainAnswer = answers.firstOrNull()
-            if (mainAnswer != null) {
-                conversation += LlmMessage(
-                    role = ChatRole.ASSISTANT,
-                    content = mainAnswer.message
-                )
+            ).collect { result ->
+                when (result) {
+                    is StreamResult.TextChunk -> {
+                        // Тихо накапливаем ответ (не печатаем сырой TOON)
+                    }
+                    is StreamResult.Complete -> {
+                        finalAnswer = result.answer
+                    }
+                }
             }
 
-            for (answer in answers) {
-                if (answer.phase == "ready" && answer.document.isNotBlank()) {
-                    println(prettyOutput(answer.document, maxWidth = 120))
-                    println()
+            // Очищаем индикатор загрузки и выводим результат
+            print("\r")  // Возврат каретки для затирания индикатора
+
+            finalAnswer?.let { answer ->
+                // Определяем что выводить: document (если phase=ready) или message
+                val textToDisplay = if (answer.phase == "ready" && answer.document.isNotBlank()) {
+                    answer.document
                 } else {
-                    println(prettyOutput(answer.message, maxWidth = 120))
-                    println()
+                    answer.message
                 }
+
+                // Плавный вывод текста посимвольно (эффект печатной машинки)
+                for (char in textToDisplay) {
+                    print(char)
+                    System.out.flush()
+                    // Небольшая задержка для эффекта печатания (2мс на символ)
+                    delay(2)
+                }
+
+                println()
+                println()
+
+                // Сохраняем ответ в историю разговора
+                conversation += LlmMessage(
+                    role = ChatRole.ASSISTANT,
+                    content = answer.message
+                )
 
                 // Отображение статистики токенов
                 printTokenStats(answer)
