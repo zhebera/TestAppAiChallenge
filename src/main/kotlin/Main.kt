@@ -10,11 +10,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
 import org.example.data.network.LlmClient
+import org.example.data.network.OpenRouterSummaryClient
+import org.example.data.network.SummaryClient
 import org.example.data.repository.ChatRepositoryImpl
 import org.example.data.repository.StreamResult
+import org.example.domain.models.ChatHistory
 import org.example.domain.models.ChatRole
 import org.example.domain.models.LlmAnswer
 import org.example.domain.models.LlmMessage
+import org.example.domain.usecase.CompressHistoryUseCase
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
 import org.example.utils.SYSTEM_FORMAT_PROMPT
@@ -30,30 +34,31 @@ private const val CLAUDE_OPUS_MODEL_NAME = "claude-opus-4-1"
 fun main() = runBlocking {
     val console = ConsoleInput()
 
-    val apiKey = resolveApiKey(console) ?: return@runBlocking
+    val anthropicKey = resolveApiKey(console, "ANTHROPIC_API_KEY", "Anthropic") ?: return@runBlocking
+    val openRouterKey = resolveApiKey(console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)")
 
     val json = buildJsonConfig()
     val client = buildHttpClient(json)
 
     try {
-        val sendMessageUseCase = buildSendMessageUseCase(client, json, apiKey)
-        runChatLoop(console, sendMessageUseCase)
+        val useCases = buildUseCases(client, json, anthropicKey, openRouterKey)
+        runChatLoop(console, useCases)
     } finally {
         client.close()
     }
 }
 
-private fun resolveApiKey(console: ConsoleInput): String? {
-    val envKey = System.getenv("ANTHROPIC_API_KEY")
+private fun resolveApiKey(console: ConsoleInput, envVar: String, serviceName: String): String? {
+    val envKey = System.getenv(envVar)
     if (!envKey.isNullOrBlank()) return envKey
 
     val fromInput = console.readLine(
-        "Переменная ANTHROPIC_API_KEY не установлена.\n" +
-                "Введите API ключ Anthropic вручную: "
+        "Переменная $envVar не установлена.\n" +
+                "Введите API ключ $serviceName вручную (или Enter для пропуска): "
     )?.trim()
 
     return if (fromInput.isNullOrEmpty()) {
-        println("\nAPI ключ не указан или ввод недоступен. Завершаю работу.")
+        println("Ключ $serviceName не указан.")
         null
     } else {
         fromInput
@@ -81,15 +86,21 @@ private fun buildHttpClient(json: Json): HttpClient =
         }
     }
 
-private fun buildSendMessageUseCase(
+private data class UseCases(
+    val sendMessage: SendMessageUseCase,
+    val compressHistory: CompressHistoryUseCase?  // null если нет OpenRouter ключа
+)
+
+private fun buildUseCases(
     client: HttpClient,
     json: Json,
-    apiKey: String
-): SendMessageUseCase {
+    anthropicKey: String,
+    openRouterKey: String?
+): UseCases {
     val claudeSonnetClient = AnthropicClient(
         http = client,
         json = json,
-        apiKey = apiKey,
+        apiKey = anthropicKey,
         model = CLAUDE_SONNET_MODEL_NAME,
     )
 
@@ -99,22 +110,50 @@ private fun buildSendMessageUseCase(
         clients = clients,
     )
 
-    return SendMessageUseCase(chatRepository)
+    // Создаём клиент для суммаризации (OpenRouter с бесплатной моделью)
+    val summaryClient: SummaryClient? = openRouterKey?.let {
+        OpenRouterSummaryClient(
+            http = client,
+            json = json,
+            apiKey = it,
+            primaryModel = "meta-llama/llama-3.2-3b-instruct:free"
+        )
+    }
+
+    // CompressHistoryUseCase создаётся только если есть OpenRouter ключ
+    val compressHistory = summaryClient?.let { CompressHistoryUseCase(it) }
+
+    return UseCases(
+        sendMessage = SendMessageUseCase(chatRepository),
+        compressHistory = compressHistory
+    )
 }
 
 private suspend fun runChatLoop(
     console: ConsoleInput,
-    sendMessageUseCase: SendMessageUseCase
+    useCases: UseCases
 ) {
     println("LLM Chat. Введите 'exit' для выхода.\n")
-    println("Для смены System Prompt введите '/changePrompt'")
-    println("Для изменения temperature введите '/temperature' (0.0 - 1.0)")
-    println("Для изменения max_tokens введите '/maxTokens' (например: /maxTokens 100)")
+    println("Команды:")
+    println("  /new или /clear - начать новый диалог (очистить историю)")
+    println("  /stats          - показать статистику истории")
+    println("  /changePrompt   - сменить System Prompt")
+    println("  /temperature    - изменить temperature (0.0 - 1.0)")
+    println("  /maxTokens      - изменить max_tokens")
+    println()
+
+    val compressionEnabled = useCases.compressHistory != null
+    if (compressionEnabled) {
+        println("Сжатие истории: ВКЛЮЧЕНО (OpenRouter)")
+    } else {
+        println("Сжатие истории: ВЫКЛЮЧЕНО (нет OPENROUTER_API_KEY)")
+    }
+    println()
 
     var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT
     var currentTemperature: Double? = null
     var currentMaxTokens = 1024
-    val conversation = mutableListOf<LlmMessage>()
+    val chatHistory = ChatHistory(compressionThreshold = 6)
 
     while (true) {
         val line = console.readLine("user >> ") ?: run {
@@ -128,6 +167,44 @@ private suspend fun runChatLoop(
             break
         }
         if (text.isEmpty()) {
+            continue
+        }
+
+        // Команда /new или /clear - очистить историю
+        if (text.equals("/new", ignoreCase = true) || text.equals("/clear", ignoreCase = true)) {
+            val stats = chatHistory.getStats()
+            chatHistory.clear()
+            println()
+            println("История диалога очищена.")
+            if (stats.totalProcessedMessages > 0) {
+                println("Было удалено: ${stats.currentMessageCount} сообщений в памяти")
+                if (stats.compressedMessageCount > 0) {
+                    println("Ранее сжато: ${stats.compressedMessageCount} сообщений")
+                }
+            }
+            println("Начинаем новый диалог.")
+            println()
+            continue
+        }
+
+        // Команда /stats - показать статистику истории
+        if (text.equals("/stats", ignoreCase = true)) {
+            val stats = chatHistory.getStats()
+            println()
+            println("─".repeat(50))
+            println("Статистика истории диалога:")
+            println("  Текущих сообщений в памяти: ${stats.currentMessageCount}")
+            println("  Сжатых сообщений:           ${stats.compressedMessageCount}")
+            println("  Всего обработано:           ${stats.totalProcessedMessages}")
+            println("  Есть summary:               ${if (stats.hasSummary) "Да" else "Нет"}")
+            if (stats.hasSummary) {
+                println("  Размер summary:             ${stats.summaryLength} символов")
+            }
+            if (stats.hasSummary) {
+                println("   Summary text: ${stats.summaryText}")
+            }
+            println("─".repeat(50))
+            println()
             continue
         }
 
@@ -211,12 +288,29 @@ private suspend fun runChatLoop(
             continue
         }
 
-        conversation += LlmMessage(
-            role = ChatRole.USER,
-            content = text
-        )
+        // Добавляем сообщение пользователя в историю
+        chatHistory.addMessage(ChatRole.USER, text)
 
         try {
+            // Проверяем нужно ли сжатие истории (если включено)
+            if (chatHistory.needsCompression() && useCases.compressHistory != null) {
+                print("Сжимаю историю диалога (OpenRouter)... ")
+                System.out.flush()
+                try {
+                    val compressed = useCases.compressHistory.compressIfNeeded(chatHistory)
+                    if (compressed) {
+                        println("Готово!")
+                        val stats = chatHistory.getStats()
+                        println("(Сжато ${stats.compressedMessageCount} сообщений, в памяти осталось ${stats.currentMessageCount})")
+                    } else {
+                        println()
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка: ${e.message}")
+                }
+            }
+
+            // Строим список сообщений для отправки
             val conversationWithSystem: List<LlmMessage> =
                 if (currentSystemPrompt.isNotBlank()) {
                     listOf(
@@ -224,19 +318,19 @@ private suspend fun runChatLoop(
                             role = ChatRole.SYSTEM,
                             content = currentSystemPrompt
                         )
-                    ) + conversation
+                    ) + chatHistory.messages
                 } else {
-                    conversation
+                    chatHistory.messages
                 }
 
             // Используем streaming для получения ответа
             var finalAnswer: LlmAnswer? = null
 
             // Собираем полный ответ, показывая индикатор загрузки
-            print("⏳ ")
+            print("...")
             System.out.flush()
 
-            sendMessageUseCase.stream(
+            useCases.sendMessage.stream(
                 conversationWithSystem,
                 currentTemperature,
                 currentMaxTokens,
@@ -274,13 +368,10 @@ private suspend fun runChatLoop(
                 println()
 
                 // Сохраняем ответ в историю разговора
-                conversation += LlmMessage(
-                    role = ChatRole.ASSISTANT,
-                    content = answer.message
-                )
+                chatHistory.addMessage(ChatRole.ASSISTANT, answer.message)
 
                 // Отображение статистики токенов
-                printTokenStats(answer)
+                printTokenStats(answer, chatHistory)
             }
         } catch (t: Throwable) {
             println()
@@ -290,17 +381,18 @@ private suspend fun runChatLoop(
     }
 }
 
-private fun printTokenStats(answer: LlmAnswer) {
+private fun printTokenStats(answer: LlmAnswer, chatHistory: ChatHistory) {
     val inputTokens = answer.inputTokens
     val outputTokens = answer.outputTokens
     val stopReason = answer.stopReason
+    val stats = chatHistory.getStats()
 
     if (inputTokens == null && outputTokens == null && stopReason == null) {
         return
     }
 
     println("─".repeat(60))
-    println("📊 Статистика токенов:")
+    println("Статистика:")
 
     if (inputTokens != null) {
         println("   Input tokens (запрос):  $inputTokens")
@@ -321,13 +413,17 @@ private fun printTokenStats(answer: LlmAnswer) {
 
     if (stopReason != null) {
         val reasonDescription = when (stopReason) {
-            "end_turn" -> "✓ Модель завершила ответ естественно"
-            "max_tokens" -> "⚠️ Ответ обрезан - достигнут лимит max_tokens!"
+            "end_turn" -> "Модель завершила ответ естественно"
+            "max_tokens" -> "Ответ обрезан - достигнут лимит max_tokens!"
             "stop_sequence" -> "Остановлено по стоп-последовательности"
             else -> stopReason
         }
         println("   Stop reason:            $reasonDescription")
     }
+
+    // Информация об истории
+    println("   История: ${stats.currentMessageCount} сообщений" +
+            if (stats.compressedMessageCount > 0) " (+${stats.compressedMessageCount} сжато)" else "")
 
     println("─".repeat(60))
     println()
