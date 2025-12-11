@@ -32,19 +32,19 @@ private const val CLAUDE_HAIKU_MODEL_NAME = "claude-haiku-4-5-20251001"
 private const val CLAUDE_OPUS_MODEL_NAME = "claude-opus-4-1"
 
 fun main() = runBlocking {
-    val console = ConsoleInput()
+    ConsoleInput().use { console ->
+        val anthropicKey = resolveApiKey(console, "ANTHROPIC_API_KEY", "Anthropic") ?: return@runBlocking
+        val openRouterKey = resolveApiKey(console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)")
 
-    val anthropicKey = resolveApiKey(console, "ANTHROPIC_API_KEY", "Anthropic") ?: return@runBlocking
-    val openRouterKey = resolveApiKey(console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)")
+        val json = buildJsonConfig()
+        val client = buildHttpClient(json)
 
-    val json = buildJsonConfig()
-    val client = buildHttpClient(json)
-
-    try {
-        val useCases = buildUseCases(client, json, anthropicKey, openRouterKey)
-        runChatLoop(console, useCases)
-    } finally {
-        client.close()
+        try {
+            val useCases = buildUseCases(client, json, anthropicKey, openRouterKey)
+            runChatLoop(console, useCases)
+        } finally {
+            client.close()
+        }
     }
 }
 
@@ -255,11 +255,11 @@ private suspend fun runChatLoop(
         if (text.equals("/changePrompt", ignoreCase = true)) {
             println()
             println("Выберите новый system prompt:")
-            println("1 - Свободный режим (без system prompt)")
-            println("2 - Логические задачи (SYSTEM_FORMAT_PROMPT_LOGIC)")
-            println("3 - Токарь (SYSTEM_FORMAT_PROMPT_TECH)")
-            println("4 - Пират 18 века (SYSTEM_FORMAT_PROMPT_TECH)")
-            print("Ваш выбор (1/2/3): ")
+            println("1 - Обычный ИИ помощник")
+            println("2 - Логические задачи")
+            println("3 - Токарь")
+            println("4 - Пират 18 века")
+            print("Ваш выбор (1/2/3/4): ")
 
             val choice = console.readLine("")?.trim()
 
@@ -323,7 +323,7 @@ private suspend fun runChatLoop(
                     chatHistory.messages
                 }
 
-            // Используем streaming для получения ответа
+            // Используем streaming для получения отТепервета
             var finalAnswer: LlmAnswer? = null
 
             // Собираем полный ответ, показывая индикатор загрузки

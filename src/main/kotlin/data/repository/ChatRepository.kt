@@ -70,7 +70,7 @@ class ChatRepositoryImpl(
                 val request = LlmRequest(
                     model = client.model,
                     messages = toonEncodedMessages,
-                    systemPrompt = systemMessage.first().content,
+                    systemPrompt = systemMessage.firstOrNull()?.content,
                     maxTokens = maxTokens,
                     temperature = temperature ?: defaultTemperature
                 )
@@ -99,7 +99,8 @@ class ChatRepositoryImpl(
         maxTokens: Int,
         temperature: Double?
     ): Flow<StreamResult> {
-        val client = clients.first()
+        val client = clients.firstOrNull()
+            ?: throw IllegalStateException("No LLM clients configured")
 
         val systemMessage = conversation.filter { it.role == ChatRole.SYSTEM }
         val dialogMessages = conversation.filter { it.role != ChatRole.SYSTEM }

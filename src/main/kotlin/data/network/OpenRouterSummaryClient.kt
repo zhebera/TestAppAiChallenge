@@ -64,6 +64,7 @@ class OpenRouterSummaryClient(
     }
 
     private suspend fun trySummarize(dialogText: String, model: String, attempt: Int): String? {
+        // Reuse DTOs from OpenRouterClient
         val messages = listOf(
             OpenRouterMessageDto(role = "system", content = SUMMARY_SYSTEM_PROMPT),
             OpenRouterMessageDto(role = "user", content = "Резюмируй диалог:\n\n$dialogText")
