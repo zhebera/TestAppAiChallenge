@@ -10,30 +10,31 @@ import org.example.data.persistence.MemoryRepository
  * @property sessionId ID текущей сессии для персистентности
  */
 class ChatHistory(
-    private val compressionThreshold: Int = 12,  // Порог для сжатия (10 сообщений + 2 запас)
-    private val keepRecentCount: Int = 10,       // Хранить 10 последних сообщений
+    private val maxStoredMessages: Int = 10,     // Максимум сообщений в БД/памяти
+    private val compressEvery: Int = 2,          // Сжимать каждые N сообщений (1 вопрос + 1 ответ)
     private val memoryRepository: MemoryRepository? = null,
     private var sessionId: String? = null,
 ) {
-    private val _messages = mutableListOf<LlmMessage>()
-    private var _summary: String? = null
-    private var _compressedCount: Int = 0
+    private val _messages = mutableListOf<LlmMessage>()         // Все сообщения в памяти
+    private val _summaries = mutableListOf<String>()            // Список summary (каждый для 2 сообщений)
+    private var _totalCompressedCount: Int = 0                  // Общее количество сжатых сообщений
+    private var _pendingForCompression: Int = 0                 // Сообщения, ожидающие сжатия
 
     /** Все сообщения в истории (включая summary если есть) */
     val messages: List<LlmMessage>
         get() = buildMessageList()
 
-    /** Количество сообщений до сжатия */
+    /** Количество сообщений в памяти */
     val rawMessageCount: Int
         get() = _messages.size
 
-    /** Текущее summary (если было сжатие) */
+    /** Объединённое summary */
     val summary: String?
-        get() = _summary
+        get() = if (_summaries.isEmpty()) null else _summaries.joinToString("\n")
 
-    /** Количество сообщений, которые были сжаты в summary */
+    /** Количество сообщений, которые были сжаты */
     val compressedCount: Int
-        get() = _compressedCount
+        get() = _totalCompressedCount
 
     /** ID текущей сессии */
     val currentSessionId: String?
@@ -65,25 +66,35 @@ class ChatHistory(
         val repo = memoryRepository ?: return
         val sid = sessionId ?: return
 
-        // Загружаем summary
-        _summary = repo.getCombinedSummary(sid)
-        _compressedCount = repo.getCompressedMessagesCount(sid)
+        // Загружаем все summaries
+        _summaries.clear()
+        val storedSummaries = repo.getSummaries(sid)
+        _summaries.addAll(storedSummaries.map { it.summary })
+        _totalCompressedCount = storedSummaries.sumOf { it.messagesCount }
 
-        // Загружаем последние 10 сообщений (5 вопросов + 5 ответов)
-        val recentMessages = repo.getRecentMessages(sid, 10)
+        // Загружаем последние несжатые сообщения
+        val recentMessages = repo.getRecentMessages(sid, maxStoredMessages)
         _messages.clear()
         _messages.addAll(recentMessages.map { stored ->
             LlmMessage(role = stored.role, content = stored.content)
         })
+
+        // Все загруженные сообщения уже сжаты, pending = 0
+        _pendingForCompression = 0
     }
 
-    /** Проверяет, нужно ли сжатие */
-    fun needsCompression(): Boolean =
-        _messages.size >= compressionThreshold
+    /**
+     * Проверяет, нужно ли сжатие.
+     * Сжатие нужно когда накопилось compressEvery новых сообщений.
+     */
+    fun needsCompression(): Boolean {
+        return _pendingForCompression >= compressEvery
+    }
 
     /** Добавить сообщение в историю */
     fun addMessage(message: LlmMessage) {
         _messages.add(message)
+        _pendingForCompression++
 
         // Сохраняем в БД
         val repo = memoryRepository
@@ -100,59 +111,83 @@ class ChatHistory(
     }
 
     /**
-     * Применить сжатие: заменить старые сообщения на summary.
+     * Получить сообщения для сжатия.
+     * Возвращает последние pending сообщений.
+     */
+    fun getMessagesToCompress(): List<LlmMessage> {
+        if (_pendingForCompression <= 0) return emptyList()
+        return _messages.takeLast(_pendingForCompression)
+    }
+
+    /**
+     * Применить сжатие: добавить новый summary.
      * @param summaryText Текст summary от LLM
      */
     fun applySummary(summaryText: String) {
-        if (_messages.size <= keepRecentCount) return
+        if (_pendingForCompression <= 0) return
 
-        val toCompress = _messages.size - keepRecentCount
-        _compressedCount += toCompress
+        val compressedCount = _pendingForCompression
+        _totalCompressedCount += compressedCount
 
-        // Сохраняем последние keepRecentCount сообщений
-        val recentMessages = _messages.takeLast(keepRecentCount)
-
-        // Обновляем summary
-        _summary = if (_summary != null) {
-            // Объединяем старое summary с новым
-            "$_summary\n\n$summaryText"
-        } else {
-            summaryText
-        }
+        // Добавляем новый summary в список
+        _summaries.add(summaryText)
 
         // Сохраняем summary в БД
         val repo = memoryRepository
         val sid = sessionId
         if (repo != null && sid != null) {
-            repo.saveSummary(sid, summaryText, toCompress)
+            repo.saveSummary(sid, summaryText, compressedCount)
 
-            // Помечаем старые сообщения как сжатые
+            // Помечаем сообщения как сжатые в БД
             val allMessages = repo.getAllMessages(sid)
             val toMarkIds = allMessages
                 .filter { !it.isCompressed }
-                .dropLast(this.keepRecentCount)
+                .takeLast(compressedCount)
                 .map { it.id }
             if (toMarkIds.isNotEmpty()) {
                 repo.markMessagesAsCompressed(toMarkIds)
             }
         }
 
-        // Очищаем и добавляем только недавние сообщения
-        _messages.clear()
-        _messages.addAll(recentMessages)
+        // Сбрасываем счётчик pending
+        _pendingForCompression = 0
+
+        // Проверяем лимит сообщений и удаляем старые
+        trimOldData()
     }
 
-    /** Получить сообщения для сжатия (все кроме последних keepRecentCount) */
-    fun getMessagesToCompress(): List<LlmMessage> {
-        if (_messages.size <= keepRecentCount) return emptyList()
-        return _messages.dropLast(keepRecentCount)
+    /**
+     * Удаляет старые сообщения и их summaries когда превышен лимит.
+     */
+    private fun trimOldData() {
+        if (_messages.size <= maxStoredMessages) return
+
+        val toRemove = _messages.size - maxStoredMessages
+
+        // Удаляем старые сообщения
+        repeat(toRemove) { _messages.removeAt(0) }
+
+        // Удаляем соответствующие summaries (каждый summary = compressEvery сообщений)
+        val summariesToRemove = toRemove / compressEvery
+        repeat(summariesToRemove.coerceAtMost(_summaries.size)) {
+            _summaries.removeAt(0)
+        }
+
+        // Обновляем в БД (помечаем удалённые)
+        val repo = memoryRepository
+        val sid = sessionId
+        if (repo != null && sid != null && summariesToRemove > 0) {
+            // Можно добавить метод удаления старых summaries из БД
+            // Пока оставим как есть - они останутся в БД, но не будут использоваться
+        }
     }
 
     /** Очистить всю историю (только в памяти, не в БД) */
     fun clear() {
         _messages.clear()
-        _summary = null
-        _compressedCount = 0
+        _summaries.clear()
+        _totalCompressedCount = 0
+        _pendingForCompression = 0
     }
 
     /** Очистить историю и создать новую сессию */
@@ -161,32 +196,46 @@ class ChatHistory(
         return initSession(createNew = true)
     }
 
-    /** Построить список сообщений для отправки в LLM */
+    /**
+     * Построить список сообщений для отправки в LLM.
+     * Формат: [summary контекст] + [последнее сообщение пользователя]
+     */
     private fun buildMessageList(): List<LlmMessage> {
-        return if (_summary != null) {
-            // Если есть summary, добавляем его как системное сообщение о контексте
-            val summaryMessage = LlmMessage(
+        val result = mutableListOf<LlmMessage>()
+
+        // Добавляем summary если есть
+        val combinedSummary = summary
+        if (combinedSummary != null) {
+            result.add(LlmMessage(
                 role = ChatRole.USER,
-                content = "[КРАТКОЕ СОДЕРЖАНИЕ ПРЕДЫДУЩЕГО ДИАЛОГА]\n$_summary\n[КОНЕЦ КРАТКОГО СОДЕРЖАНИЯ]"
-            )
-            val summaryAck = LlmMessage(
+                content = "[КОНТЕКСТ ДИАЛОГА]\n$combinedSummary\n[КОНЕЦ КОНТЕКСТА]"
+            ))
+            result.add(LlmMessage(
                 role = ChatRole.ASSISTANT,
-                content = "Понял, я учитываю контекст предыдущего диалога."
-            )
-            listOf(summaryMessage, summaryAck) + _messages
-        } else {
-            _messages.toList()
+                content = "Понял контекст."
+            ))
         }
+
+        // Добавляем только pending (несжатые) сообщения
+        if (_pendingForCompression > 0) {
+            result.addAll(_messages.takeLast(_pendingForCompression))
+        } else if (_messages.isNotEmpty()) {
+            // Если нет pending, добавляем последнее сообщение
+            result.add(_messages.last())
+        }
+
+        return result
     }
 
     /** Получить статистику истории */
     fun getStats(): HistoryStats {
+        val combinedSummary = summary
         return HistoryStats(
             currentMessageCount = _messages.size,
-            compressedMessageCount = _compressedCount,
-            hasSummary = _summary != null,
-            summaryLength = _summary?.length ?: 0,
-            summaryText = summary,
+            compressedMessageCount = _totalCompressedCount,
+            hasSummary = _summaries.isNotEmpty(),
+            summaryLength = combinedSummary?.length ?: 0,
+            summaryText = combinedSummary,
         )
     }
 

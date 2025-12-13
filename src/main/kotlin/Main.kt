@@ -159,8 +159,8 @@ private suspend fun runChatLoop(
     var currentTemperature: Double? = null
     var currentMaxTokens = 1024
     val chatHistory = ChatHistory(
-        compressionThreshold = 12,  // Сжимать когда > 10 сообщений
-        keepRecentCount = 10,       // Хранить 10 последних (5 вопросов + 5 ответов)
+        maxStoredMessages = 10,      // Хранить максимум 10 сообщений
+        compressEvery = 2,           // Сжимать каждые 2 сообщения (вопрос + ответ)
         memoryRepository = memoryRepository
     )
 
