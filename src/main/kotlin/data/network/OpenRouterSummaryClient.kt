@@ -26,7 +26,6 @@ class OpenRouterSummaryClient(
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 2000L
 
-        // Список fallback моделей при rate limit
         private val FALLBACK_MODELS = listOf(
             "google/gemini-2.0-flash-exp:free",
             "deepseek/deepseek-r1:free",

@@ -30,7 +30,8 @@ class ChatHistory(
         get() = _compressedCount
 
     /** Проверяет, нужно ли сжатие */
-    fun needsCompression(): Boolean = _messages.size >= compressionThreshold
+    fun needsCompression(): Boolean =
+        _messages.size >= compressionThreshold
 
     /** Добавить сообщение в историю */
     fun addMessage(message: LlmMessage) {
