@@ -1,13 +1,19 @@
 package org.example.domain.models
 
+import org.example.data.persistence.MemoryRepository
+
 /**
- * Модель для управления историей чата с поддержкой сжатия.
+ * Модель для управления историей чата с поддержкой сжатия и персистентного хранения.
  *
- * @property messages Полный список сообщений в истории
  * @property compressionThreshold Порог количества сообщений для запуска сжатия (по умолчанию 10)
+ * @property memoryRepository Репозиторий для сохранения в SQLite (опционально)
+ * @property sessionId ID текущей сессии для персистентности
  */
 class ChatHistory(
-    private val compressionThreshold: Int = 10,
+    private val compressionThreshold: Int = 12,  // Порог для сжатия (10 сообщений + 2 запас)
+    private val keepRecentCount: Int = 10,       // Хранить 10 последних сообщений
+    private val memoryRepository: MemoryRepository? = null,
+    private var sessionId: String? = null,
 ) {
     private val _messages = mutableListOf<LlmMessage>()
     private var _summary: String? = null
@@ -29,6 +35,48 @@ class ChatHistory(
     val compressedCount: Int
         get() = _compressedCount
 
+    /** ID текущей сессии */
+    val currentSessionId: String?
+        get() = sessionId
+
+    /**
+     * Инициализирует сессию и загружает данные из БД.
+     * @param createNew Создать новую сессию вместо продолжения предыдущей
+     */
+    fun initSession(createNew: Boolean = false): String {
+        val repo = memoryRepository ?: return ""
+
+        sessionId = if (createNew) {
+            repo.createSession()
+        } else {
+            repo.getOrCreateCurrentSession()
+        }
+
+        // Загружаем последние сообщения из БД
+        loadFromDatabase()
+
+        return sessionId!!
+    }
+
+    /**
+     * Загружает данные из базы данных для текущей сессии.
+     */
+    private fun loadFromDatabase() {
+        val repo = memoryRepository ?: return
+        val sid = sessionId ?: return
+
+        // Загружаем summary
+        _summary = repo.getCombinedSummary(sid)
+        _compressedCount = repo.getCompressedMessagesCount(sid)
+
+        // Загружаем последние 10 сообщений (5 вопросов + 5 ответов)
+        val recentMessages = repo.getRecentMessages(sid, 10)
+        _messages.clear()
+        _messages.addAll(recentMessages.map { stored ->
+            LlmMessage(role = stored.role, content = stored.content)
+        })
+    }
+
     /** Проверяет, нужно ли сжатие */
     fun needsCompression(): Boolean =
         _messages.size >= compressionThreshold
@@ -36,19 +84,26 @@ class ChatHistory(
     /** Добавить сообщение в историю */
     fun addMessage(message: LlmMessage) {
         _messages.add(message)
+
+        // Сохраняем в БД
+        val repo = memoryRepository
+        val sid = sessionId
+        if (repo != null && sid != null) {
+            repo.saveMessage(sid, message)
+            repo.updateSessionActivity(sid)
+        }
     }
 
     /** Добавить сообщение с указанием роли и контента */
     fun addMessage(role: ChatRole, content: String) {
-        _messages.add(LlmMessage(role = role, content = content))
+        addMessage(LlmMessage(role = role, content = content))
     }
 
     /**
      * Применить сжатие: заменить старые сообщения на summary.
      * @param summaryText Текст summary от LLM
-     * @param keepRecentCount Сколько последних сообщений сохранить без сжатия
      */
-    fun applySummary(summaryText: String, keepRecentCount: Int = 4) {
+    fun applySummary(summaryText: String) {
         if (_messages.size <= keepRecentCount) return
 
         val toCompress = _messages.size - keepRecentCount
@@ -65,22 +120,45 @@ class ChatHistory(
             summaryText
         }
 
+        // Сохраняем summary в БД
+        val repo = memoryRepository
+        val sid = sessionId
+        if (repo != null && sid != null) {
+            repo.saveSummary(sid, summaryText, toCompress)
+
+            // Помечаем старые сообщения как сжатые
+            val allMessages = repo.getAllMessages(sid)
+            val toMarkIds = allMessages
+                .filter { !it.isCompressed }
+                .dropLast(this.keepRecentCount)
+                .map { it.id }
+            if (toMarkIds.isNotEmpty()) {
+                repo.markMessagesAsCompressed(toMarkIds)
+            }
+        }
+
         // Очищаем и добавляем только недавние сообщения
         _messages.clear()
         _messages.addAll(recentMessages)
     }
 
     /** Получить сообщения для сжатия (все кроме последних keepRecentCount) */
-    fun getMessagesToCompress(keepRecentCount: Int = 4): List<LlmMessage> {
+    fun getMessagesToCompress(): List<LlmMessage> {
         if (_messages.size <= keepRecentCount) return emptyList()
         return _messages.dropLast(keepRecentCount)
     }
 
-    /** Очистить всю историю */
+    /** Очистить всю историю (только в памяти, не в БД) */
     fun clear() {
         _messages.clear()
         _summary = null
         _compressedCount = 0
+    }
+
+    /** Очистить историю и создать новую сессию */
+    fun clearAndNewSession(): String {
+        clear()
+        return initSession(createNew = true)
     }
 
     /** Построить список сообщений для отправки в LLM */
@@ -110,6 +188,21 @@ class ChatHistory(
             summaryLength = _summary?.length ?: 0,
             summaryText = summary,
         )
+    }
+
+    /** Поиск в истории сообщений */
+    fun search(query: String): List<LlmMessage> {
+        val repo = memoryRepository
+        val sid = sessionId
+
+        return if (repo != null && sid != null) {
+            repo.searchMessages(sid, query).map { stored ->
+                LlmMessage(role = stored.role, content = stored.content)
+            }
+        } else {
+            // Поиск в памяти
+            _messages.filter { it.content.contains(query, ignoreCase = true) }
+        }
     }
 }
 

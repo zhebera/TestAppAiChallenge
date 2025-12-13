@@ -32,14 +32,7 @@ class OpenRouterSummaryClient(
             "qwen/qwen3-4b:free"
         )
 
-        private const val SUMMARY_SYSTEM_PROMPT = """Ты — помощник для сжатия диалогов. Создай КРАТКОЕ резюме диалога.
-
-ПРАВИЛА:
-1. Сохрани ключевые факты, решения, имена, числа
-2. Убери повторы и несущественные детали
-3. Пиши кратко (максимум 3-5 предложений)
-4. Отвечай ТОЛЬКО текстом резюме
-5. Пиши на том же языке, что и диалог"""
+        private const val SUMMARY_SYSTEM_PROMPT = """Сожми диалог в 2-4 предложения. Сохрани ТОЛЬКО: ключевые факты, имена, числа, решения. Удали всё лишнее. Пиши на языке диалога. Отвечай ТОЛЬКО текстом резюме."""
     }
 
     override suspend fun summarize(dialogText: String): String {
@@ -72,8 +65,8 @@ class OpenRouterSummaryClient(
         val body = OpenRouterRequestDto(
             model = model,
             messages = messages,
-            maxTokens = 256,
-            temperature = 0.3
+            maxTokens = 150,  // Компактное резюме
+            temperature = 0.2
         )
 
         return try {

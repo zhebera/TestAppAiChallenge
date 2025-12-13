@@ -13,6 +13,7 @@ repositories {
 
 dependencies {
     val ktorVersion = "2.3.11"
+    val exposedVersion = "0.46.0"
 
     testImplementation(kotlin("test"))
 
@@ -26,11 +27,20 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.slf4j:slf4j-nop:2.0.13")
+
+    // Exposed (SQLite ORM)
+    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
+    implementation("org.xerial:sqlite-jdbc:3.44.1.0")
 }
 
 application {
     mainClass.set("org.example.MainKt")
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
+    applicationDefaultJvmArgs = listOf(
+        "-Dfile.encoding=UTF-8",
+        "--enable-native-access=ALL-UNNAMED"  // Для SQLite JDBC на Java 21+
+    )
 }
 
 tasks.test {
@@ -39,4 +49,5 @@ tasks.test {
 
 tasks.withType<JavaExec>().configureEach {
     standardInput = System.`in`
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }

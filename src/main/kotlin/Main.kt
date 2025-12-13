@@ -12,6 +12,8 @@ import org.example.data.api.AnthropicClient
 import org.example.data.network.LlmClient
 import org.example.data.network.OpenRouterSummaryClient
 import org.example.data.network.SummaryClient
+import org.example.data.persistence.DatabaseConfig
+import org.example.data.persistence.MemoryRepository
 import org.example.data.repository.ChatRepositoryImpl
 import org.example.data.repository.StreamResult
 import org.example.domain.models.ChatHistory
@@ -25,6 +27,8 @@ import org.example.utils.SYSTEM_FORMAT_PROMPT
 import org.example.utils.SYSTEM_FORMAT_PROMPT_LOGIC
 import org.example.utils.SYSTEM_FORMAT_PROMPT_PIRATE
 import org.example.utils.SYSTEM_FORMAT_PROMPT_TOKAR
+import java.text.SimpleDateFormat
+import java.util.Date
 
 // --- Константы и конфигурация ---
 private const val CLAUDE_SONNET_MODEL_NAME = "claude-sonnet-4-20250514"
@@ -32,6 +36,10 @@ private const val CLAUDE_HAIKU_MODEL_NAME = "claude-haiku-4-5-20251001"
 private const val CLAUDE_OPUS_MODEL_NAME = "claude-opus-4-1"
 
 fun main() = runBlocking {
+    // Инициализируем базу данных
+    DatabaseConfig.init()
+    val memoryRepository = MemoryRepository()
+
     ConsoleInput().use { console ->
         val anthropicKey = resolveApiKey(console, "ANTHROPIC_API_KEY", "Anthropic") ?: return@runBlocking
         val openRouterKey = resolveApiKey(console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)")
@@ -41,7 +49,7 @@ fun main() = runBlocking {
 
         try {
             val useCases = buildUseCases(client, json, anthropicKey, openRouterKey)
-            runChatLoop(console, useCases)
+            runChatLoop(console, useCases, memoryRepository)
         } finally {
             client.close()
         }
@@ -131,7 +139,8 @@ private fun buildUseCases(
 
 private suspend fun runChatLoop(
     console: ConsoleInput,
-    useCases: UseCases
+    useCases: UseCases,
+    memoryRepository: MemoryRepository
 ) {
     println("LLM Chat. Введите 'exit' для выхода.\n")
     println("Команды:")
@@ -140,20 +149,33 @@ private suspend fun runChatLoop(
     println("  /changePrompt   - сменить System Prompt")
     println("  /temperature    - изменить temperature (0.0 - 1.0)")
     println("  /maxTokens      - изменить max_tokens")
+    println("  /memory show    - показать последние сообщения из памяти")
+    println("  /memory search  - поиск в истории сообщений")
+    println("  /memory clear   - очистить всю память")
     println()
 
-    val compressionEnabled = useCases.compressHistory != null
-    if (compressionEnabled) {
-        println("Сжатие истории: ВКЛЮЧЕНО (OpenRouter)")
-    } else {
-        println("Сжатие истории: ВЫКЛЮЧЕНО (нет OPENROUTER_API_KEY)")
-    }
-    println()
 
     var currentSystemPrompt: String = SYSTEM_FORMAT_PROMPT
     var currentTemperature: Double? = null
     var currentMaxTokens = 1024
-    val chatHistory = ChatHistory(compressionThreshold = 6)
+    val chatHistory = ChatHistory(
+        compressionThreshold = 12,  // Сжимать когда > 10 сообщений
+        keepRecentCount = 10,       // Хранить 10 последних (5 вопросов + 5 ответов)
+        memoryRepository = memoryRepository
+    )
+
+    // Инициализируем сессию и загружаем данные из БД
+    val sessionId = chatHistory.initSession()
+    val stats = chatHistory.getStats()
+    if (stats.currentMessageCount > 0 || stats.compressedMessageCount > 0) {
+        println("Восстановлена предыдущая сессия:")
+        println("  Сообщений в памяти: ${stats.currentMessageCount}")
+        if (stats.compressedMessageCount > 0) {
+            println("  Сжатых сообщений:   ${stats.compressedMessageCount}")
+        }
+        println("  (используйте /new для начала нового диалога)")
+        println()
+    }
 
     while (true) {
         val line = console.readLine("user >> ") ?: run {
@@ -170,16 +192,17 @@ private suspend fun runChatLoop(
             continue
         }
 
-        // Команда /new или /clear - очистить историю
+        // Команда /new или /clear - создать новую сессию
         if (text.equals("/new", ignoreCase = true) || text.equals("/clear", ignoreCase = true)) {
-            val stats = chatHistory.getStats()
-            chatHistory.clear()
+            val oldStats = chatHistory.getStats()
+            val newSessionId = chatHistory.clearAndNewSession()
             println()
-            println("История диалога очищена.")
-            if (stats.totalProcessedMessages > 0) {
-                println("Было удалено: ${stats.currentMessageCount} сообщений в памяти")
-                if (stats.compressedMessageCount > 0) {
-                    println("Ранее сжато: ${stats.compressedMessageCount} сообщений")
+            println("Создана новая сессия.")
+            if (oldStats.totalProcessedMessages > 0) {
+                println("Предыдущая сессия сохранена в базе данных.")
+                println("  Было сообщений: ${oldStats.currentMessageCount}")
+                if (oldStats.compressedMessageCount > 0) {
+                    println("  Сжатых: ${oldStats.compressedMessageCount}")
                 }
             }
             println("Начинаем новый диалог.")
@@ -252,6 +275,105 @@ private suspend fun runChatLoop(
             continue
         }
 
+        // Команды /memory
+        if (text.startsWith("/memory", ignoreCase = true)) {
+            val parts = text.split(" ", limit = 3)
+            val subCommand = parts.getOrNull(1)?.lowercase() ?: "help"
+
+            when (subCommand) {
+                "show" -> {
+                    println()
+                    println("─".repeat(50))
+                    println("Последние сообщения в памяти:")
+                    println()
+
+                    val sid = chatHistory.currentSessionId
+                    if (sid != null) {
+                        val messages = memoryRepository.getRecentMessages(sid, 10)
+                        if (messages.isEmpty()) {
+                            println("  (пусто)")
+                        } else {
+                            val dateFormat = SimpleDateFormat("dd.MM HH:mm")
+                            messages.forEach { msg ->
+                                val time = dateFormat.format(Date(msg.timestamp))
+                                val role = when (msg.role) {
+                                    ChatRole.USER -> "Вы"
+                                    ChatRole.ASSISTANT -> "AI"
+                                    ChatRole.SYSTEM -> "SYS"
+                                }
+                                val preview = msg.content.take(80).replace("\n", " ")
+                                val suffix = if (msg.content.length > 80) "..." else ""
+                                println("  [$time] $role: $preview$suffix")
+                            }
+                        }
+                    } else {
+                        println("  Сессия не инициализирована")
+                    }
+                    println("─".repeat(50))
+                    println()
+                }
+
+                "search" -> {
+                    val query = parts.getOrNull(2)
+                    if (query.isNullOrBlank()) {
+                        println("Использование: /memory search <запрос>")
+                        println("Пример: /memory search kotlin")
+                        println()
+                    } else {
+                        println()
+                        println("─".repeat(50))
+                        println("Поиск: \"$query\"")
+                        println()
+
+                        val results = chatHistory.search(query)
+                        if (results.isEmpty()) {
+                            println("  Ничего не найдено")
+                        } else {
+                            println("  Найдено ${results.size} сообщений:")
+                            results.take(10).forEach { msg ->
+                                val role = when (msg.role) {
+                                    ChatRole.USER -> "Вы"
+                                    ChatRole.ASSISTANT -> "AI"
+                                    ChatRole.SYSTEM -> "SYS"
+                                }
+                                val preview = msg.content.take(100).replace("\n", " ")
+                                val suffix = if (msg.content.length > 100) "..." else ""
+                                println("  $role: $preview$suffix")
+                                println()
+                            }
+                        }
+                        println("─".repeat(50))
+                        println()
+                    }
+                }
+
+                "clear" -> {
+                    println()
+                    print("Вы уверены, что хотите очистить ВСЮ память? (yes/no): ")
+                    val confirm = console.readLine("")?.trim()?.lowercase()
+                    if (confirm == "yes" || confirm == "y") {
+                        memoryRepository.clearAll()
+                        chatHistory.clear()
+                        val newSessionId = chatHistory.initSession(createNew = true)
+                        println("Вся память очищена. Создана новая сессия.")
+                    } else {
+                        println("Отменено.")
+                    }
+                    println()
+                }
+
+                else -> {
+                    println()
+                    println("Команды /memory:")
+                    println("  /memory show           - показать последние 10 сообщений")
+                    println("  /memory search <текст> - поиск по истории сообщений")
+                    println("  /memory clear          - очистить всю память (требует подтверждения)")
+                    println()
+                }
+            }
+            continue
+        }
+
         if (text.equals("/changePrompt", ignoreCase = true)) {
             println()
             println("Выберите новый system prompt:")
@@ -292,21 +414,12 @@ private suspend fun runChatLoop(
         chatHistory.addMessage(ChatRole.USER, text)
 
         try {
-            // Проверяем нужно ли сжатие истории (если включено)
+            // Сжатие истории (тихо, без сообщений)
             if (chatHistory.needsCompression() && useCases.compressHistory != null) {
-                print("Сжимаю историю диалога (OpenRouter)... ")
-                System.out.flush()
                 try {
-                    val compressed = useCases.compressHistory.compressIfNeeded(chatHistory)
-                    if (compressed) {
-                        println("Готово!")
-                        val stats = chatHistory.getStats()
-                        println("(Сжато ${stats.compressedMessageCount} сообщений, в памяти осталось ${stats.currentMessageCount})")
-                    } else {
-                        println()
-                    }
-                } catch (e: Exception) {
-                    println("Ошибка: ${e.message}")
+                    useCases.compressHistory.compressIfNeeded(chatHistory)
+                } catch (_: Exception) {
+                    // Игнорируем ошибки сжатия
                 }
             }
 

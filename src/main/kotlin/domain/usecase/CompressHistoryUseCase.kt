@@ -12,13 +12,8 @@ import org.example.domain.models.LlmMessage
 class CompressHistoryUseCase(
     private val summaryClient: SummaryClient
 ) {
-    companion object {
-        private const val KEEP_RECENT_COUNT = 4
-    }
-
     /**
      * Сжимает историю чата, если достигнут порог.
-     * Суммаризирует ВСЕ сообщения кроме последнего (которое ещё не обработано).
      * @return true если сжатие было выполнено, false если не требовалось
      */
     suspend fun compressIfNeeded(history: ChatHistory): Boolean {
@@ -26,14 +21,14 @@ class CompressHistoryUseCase(
             return false
         }
 
-        val messagesToCompress = history.getMessagesToCompress(KEEP_RECENT_COUNT)
+        val messagesToCompress = history.getMessagesToCompress()
         if (messagesToCompress.isEmpty()) {
             return false
         }
 
         val dialogText = formatDialog(messagesToCompress)
         val summary = summaryClient.summarize(dialogText)
-        history.applySummary(summary, KEEP_RECENT_COUNT)
+        history.applySummary(summary)
 
         return true
     }
