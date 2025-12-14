@@ -11,6 +11,11 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 
 /**
+ * Исключение при ошибке суммаризации.
+ */
+class SummaryException(message: String) : Exception(message)
+
+/**
  * Клиент для суммаризации через OpenRouter с бесплатными моделями.
  * Поддерживает fallback на альтернативные модели при rate limit.
  */
@@ -18,7 +23,7 @@ class OpenRouterSummaryClient(
     private val http: HttpClient,
     private val json: Json,
     private val apiKey: String,
-    private val primaryModel: String = "meta-llama/llama-3.2-3b-instruct:free",
+    private val primaryModel: String = "nex-agi/deepseek-v3.1-nex-n1:free",
 ) : SummaryClient {
 
     companion object {
@@ -27,6 +32,8 @@ class OpenRouterSummaryClient(
         private const val RETRY_DELAY_MS = 2000L
 
         private val FALLBACK_MODELS = listOf(
+            "nex-agi/deepseek-v3.1-nex-n1:free",
+            "mistralai/devstral-2512:free",
             "google/gemini-2.0-flash-exp:free",
             "deepseek/deepseek-r1:free",
             "qwen/qwen3-4b:free"
@@ -51,12 +58,12 @@ class OpenRouterSummaryClient(
             }
         }
 
-        // Все модели и попытки исчерпаны
-        return "Предыдущий диалог (не удалось суммаризировать - все модели недоступны)."
+        // Все модели и попытки исчерпаны - выбрасываем исключение
+        // чтобы не сохранять некорректный summary
+        throw SummaryException("Не удалось создать summary - все модели недоступны")
     }
 
     private suspend fun trySummarize(dialogText: String, model: String, attempt: Int): String? {
-        // Reuse DTOs from OpenRouterClient
         val messages = listOf(
             OpenRouterMessageDto(role = "system", content = SUMMARY_SYSTEM_PROMPT),
             OpenRouterMessageDto(role = "user", content = "Резюмируй диалог:\n\n$dialogText")
@@ -65,7 +72,7 @@ class OpenRouterSummaryClient(
         val body = OpenRouterRequestDto(
             model = model,
             messages = messages,
-            maxTokens = 150,  // Компактное резюме
+            maxTokens = 150,
             temperature = 0.2
         )
 
@@ -82,22 +89,20 @@ class OpenRouterSummaryClient(
             val dto = json.decodeFromString(OpenRouterResponseDto.serializer(), responseText)
 
             if (dto.error != null) {
-                val errorCode = dto.error.code
-                val errorMsg = dto.error.message
-                System.err.println("OpenRouter error ($model, attempt $attempt): $errorCode - $errorMsg")
-
-                // При rate limit (429) возвращаем null чтобы попробовать другую модель
-                if (errorCode == 429) {
-                    return null
-                }
-                // Другие ошибки тоже пробуем retry
+                // Тихо пробуем следующую модель/попытку
                 return null
             }
 
-            dto.choices?.firstOrNull()?.message?.content?.trim()
-                ?: "Диалог о различных темах."
+            val content = dto.choices?.firstOrNull()?.message?.content?.trim()
+
+            // Проверяем, что получили осмысленный ответ
+            if (content.isNullOrBlank() || content.length < 10) {
+                return null
+            }
+
+            content
         } catch (e: Exception) {
-            System.err.println("OpenRouter exception ($model, attempt $attempt): ${e::class.simpleName}: ${e.message}")
+            // Тихо пробуем следующую модель/попытку
             null
         }
     }

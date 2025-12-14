@@ -79,7 +79,10 @@ class ChatHistory(
             LlmMessage(role = stored.role, content = stored.content)
         })
 
-        // Все загруженные сообщения уже сжаты, pending = 0
+        // Несжатые сообщения из БД должны учитываться для последующего сжатия
+        // Но они ещё не были сжаты в этой сессии, поэтому pending = количество загруженных сообщений
+        // Однако, чтобы не дублировать сжатие, мы считаем их "уже обработанными"
+        // и начинаем счёт pending с 0. Новые сообщения будут добавляться к pending.
         _pendingForCompression = 0
     }
 
@@ -137,16 +140,7 @@ class ChatHistory(
         val sid = sessionId
         if (repo != null && sid != null) {
             repo.saveSummary(sid, summaryText, compressedCount)
-
-            // Помечаем сообщения как сжатые в БД
-            val allMessages = repo.getAllMessages(sid)
-            val toMarkIds = allMessages
-                .filter { !it.isCompressed }
-                .takeLast(compressedCount)
-                .map { it.id }
-            if (toMarkIds.isNotEmpty()) {
-                repo.markMessagesAsCompressed(toMarkIds)
-            }
+            // Сообщения НЕ помечаем как сжатые - они остаются в БД для загрузки
         }
 
         // Сбрасываем счётчик pending
@@ -190,15 +184,43 @@ class ChatHistory(
         _pendingForCompression = 0
     }
 
+    /**
+     * Удаляет последнее сообщение из истории.
+     * Используется для отката при ошибке запроса к LLM.
+     */
+    fun removeLastMessage() {
+        if (_messages.isEmpty()) return
+
+        val lastMessage = _messages.removeAt(_messages.size - 1)
+
+        // Уменьшаем счётчик pending только если сообщение ещё не было сжато
+        if (_pendingForCompression > 0) {
+            _pendingForCompression--
+        }
+
+        // Удаляем из БД
+        val repo = memoryRepository
+        val sid = sessionId
+        if (repo != null && sid != null) {
+            repo.deleteLastMessage(sid)
+        }
+    }
+
     /** Очистить историю и создать новую сессию */
     fun clearAndNewSession(): String {
         clear()
         return initSession(createNew = true)
     }
 
+    companion object {
+        /** Максимум сообщений в контексте при отсутствии summary */
+        private const val MAX_CONTEXT_MESSAGES = 6
+    }
+
     /**
      * Построить список сообщений для отправки в LLM.
-     * Формат: [summary контекст] + [последнее сообщение пользователя]
+     * Формат: [summary контекст] + [все несжатые сообщения]
+     * Или: [последние MAX_CONTEXT_MESSAGES сообщений] если summary нет
      */
     private fun buildMessageList(): List<LlmMessage> {
         val result = mutableListOf<LlmMessage>()
@@ -214,14 +236,11 @@ class ChatHistory(
                 role = ChatRole.ASSISTANT,
                 content = "Понял контекст."
             ))
-        }
-
-        // Добавляем только pending (несжатые) сообщения
-        if (_pendingForCompression > 0) {
-            result.addAll(_messages.takeLast(_pendingForCompression))
-        } else if (_messages.isNotEmpty()) {
-            // Если нет pending, добавляем последнее сообщение
-            result.add(_messages.last())
+            // Добавляем все сообщения из памяти
+            result.addAll(_messages)
+        } else {
+            // Нет summary - берём только последние MAX_CONTEXT_MESSAGES сообщений
+            result.addAll(_messages.takeLast(MAX_CONTEXT_MESSAGES))
         }
 
         return result

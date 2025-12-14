@@ -105,12 +105,12 @@ class MemoryRepository {
     }
 
     /**
-     * Получает последние N сообщений сессии (не сжатые).
+     * Получает последние N сообщений сессии.
      */
     fun getRecentMessages(sessionId: String, limit: Int = RECENT_MESSAGES_LIMIT): List<StoredMessage> = transaction {
         MessagesTable
             .selectAll()
-            .where { (MessagesTable.sessionId eq sessionId) and (MessagesTable.isCompressed eq false) }
+            .where { MessagesTable.sessionId eq sessionId }
             .orderBy(MessagesTable.timestamp, SortOrder.DESC)
             .limit(limit)
             .map { row ->
@@ -230,6 +230,22 @@ class MemoryRepository {
                     isCompressed = row[MessagesTable.isCompressed]
                 )
             }
+    }
+
+    /**
+     * Удаляет последнее сообщение сессии.
+     */
+    fun deleteLastMessage(sessionId: String) = transaction {
+        val lastMessage = MessagesTable
+            .selectAll()
+            .where { MessagesTable.sessionId eq sessionId }
+            .orderBy(MessagesTable.timestamp, SortOrder.DESC)
+            .limit(1)
+            .firstOrNull()
+
+        if (lastMessage != null) {
+            MessagesTable.deleteWhere { MessagesTable.id eq lastMessage[MessagesTable.id] }
+        }
     }
 
     /**

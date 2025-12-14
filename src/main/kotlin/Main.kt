@@ -118,13 +118,12 @@ private fun buildUseCases(
         clients = clients,
     )
 
-    // Создаём клиент для суммаризации (OpenRouter с бесплатной моделью)
+    // Создаём клиент для суммаризации (OpenRouter с бесплатными моделями)
     val summaryClient: SummaryClient? = openRouterKey?.let {
         OpenRouterSummaryClient(
             http = client,
             json = json,
-            apiKey = it,
-            primaryModel = "meta-llama/llama-3.2-3b-instruct:free"
+            apiKey = it
         )
     }
 
@@ -410,19 +409,19 @@ private suspend fun runChatLoop(
             continue
         }
 
+        // Сжатие предыдущей истории перед отправкой нового сообщения (тихо, без сообщений)
+        if (chatHistory.needsCompression() && useCases.compressHistory != null) {
+            try {
+                useCases.compressHistory.compressIfNeeded(chatHistory)
+            } catch (_: Exception) {
+                // Игнорируем ошибки сжатия - история продолжит работать без сжатия
+            }
+        }
+
         // Добавляем сообщение пользователя в историю
         chatHistory.addMessage(ChatRole.USER, text)
 
         try {
-            // Сжатие истории (тихо, без сообщений)
-            if (chatHistory.needsCompression() && useCases.compressHistory != null) {
-                try {
-                    useCases.compressHistory.compressIfNeeded(chatHistory)
-                } catch (_: Exception) {
-                    // Игнорируем ошибки сжатия
-                }
-            }
-
             // Строим список сообщений для отправки
             val conversationWithSystem: List<LlmMessage> =
                 if (currentSystemPrompt.isNotBlank()) {
@@ -487,8 +486,11 @@ private suspend fun runChatLoop(
                 printTokenStats(answer, chatHistory)
             }
         } catch (t: Throwable) {
+            // Откатываем сообщение пользователя при ошибке запроса
+            chatHistory.removeLastMessage()
             println()
             println("Ошибка при запросе: ${t.message}")
+            println("(Сообщение не сохранено в историю)")
             println()
         }
     }
