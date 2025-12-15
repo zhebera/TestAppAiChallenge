@@ -71,9 +71,8 @@ class ChatLoop(
         println("  /changePrompt   - сменить System Prompt")
         println("  /temperature    - изменить temperature (0.0 - 1.0)")
         println("  /maxTokens      - изменить max_tokens")
-        println("  /memory show    - показать последние сообщения из памяти")
-        println("  /memory search  - поиск в истории сообщений")
-        println("  /memory clear   - очистить всю память")
+        println("  /memory         - работа с памятью сообщений")
+        println("  /mcp            - подключение к GitHub MCP")
         println()
     }
 

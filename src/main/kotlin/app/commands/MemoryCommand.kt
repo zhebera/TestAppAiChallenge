@@ -96,10 +96,13 @@ class MemoryCommand : Command {
 
     private fun showHelp() {
         println()
-        println("Команды /memory:")
+        println("─".repeat(50))
+        println("Команды работы с памятью:")
+        println()
         println("  /memory show           - показать последние 10 сообщений")
         println("  /memory search <текст> - поиск по истории сообщений")
-        println("  /memory clear          - очистить всю память (требует подтверждения)")
+        println("  /memory clear          - очистить всю память")
+        println("─".repeat(50))
         println()
     }
 
