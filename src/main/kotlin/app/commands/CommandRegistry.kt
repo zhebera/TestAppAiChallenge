@@ -8,7 +8,8 @@ class CommandRegistry {
         TemperatureCommand(),
         MaxTokensCommand(),
         MemoryCommand(),
-        ChangePromptCommand()
+        ChangePromptCommand(),
+        McpCommand()
     )
 
     suspend fun tryExecute(input: String, context: CommandContext): CommandResult {
