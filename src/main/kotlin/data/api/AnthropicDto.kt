@@ -22,7 +22,7 @@ data class AnthropicMessageDto(
 )
 
 /**
- * Message content can be either a simple string or a list of content blocks
+ * Контент сообщения может быть либо простой строкой, либо списком блоков контента
  */
 @Serializable(with = AnthropicMessageContentSerializer::class)
 sealed class AnthropicMessageContent {
@@ -31,7 +31,7 @@ sealed class AnthropicMessageContent {
 }
 
 /**
- * Tool definition for Anthropic API
+ * Определение инструмента для Anthropic API
  */
 @Serializable
 data class AnthropicToolDto(
@@ -55,11 +55,11 @@ data class AnthropicResponseDto(
 data class AnthropicContentBlockDto(
     val type: String,
     val text: String? = null,
-    // For tool_use blocks
+    // Для блоков tool_use
     val id: String? = null,
     val name: String? = null,
     val input: JsonObject? = null,
-    // For tool_result blocks
+    // Для блоков tool_result
     @SerialName("tool_use_id") val toolUseId: String? = null,
     val content: String? = null
 )
@@ -96,8 +96,8 @@ data class StreamDeltaDto(
 )
 
 /**
- * Custom serializer for AnthropicMessageContent
- * Serializes Text as a plain string, Blocks as a JSON array
+ * Кастомный сериализатор для AnthropicMessageContent
+ * Сериализует Text как простую строку, Blocks как JSON массив
  */
 object AnthropicMessageContentSerializer : kotlinx.serialization.KSerializer<AnthropicMessageContent> {
     override val descriptor: kotlinx.serialization.descriptors.SerialDescriptor =

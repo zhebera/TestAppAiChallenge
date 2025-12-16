@@ -14,8 +14,8 @@ import org.example.data.mcp.ToolHandler
 import org.example.domain.models.ChatRole
 
 /**
- * LLM Client that supports tool use via MCP
- * Wraps requests to Claude API with tools and handles tool_use responses
+ * LLM клиент с поддержкой инструментов через MCP
+ * Оборачивает запросы к Claude API с инструментами и обрабатывает tool_use ответы
  */
 class ToolAwareClient(
     private val http: HttpClient,

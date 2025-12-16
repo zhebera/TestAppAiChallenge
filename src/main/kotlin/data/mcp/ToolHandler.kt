@@ -35,29 +35,29 @@ class ToolHandler(
     }
 
     /**
-     * Execute a tool call and return the result
+     * Выполнить вызов инструмента и вернуть результат
      */
     suspend fun executeTool(toolUseBlock: AnthropicContentBlockDto): String {
-        val toolName = toolUseBlock.name ?: return "Error: Tool name is missing"
+        val toolName = toolUseBlock.name ?: return "Ошибка: Имя инструмента отсутствует"
         val toolInput = toolUseBlock.input ?: JsonObject(emptyMap())
 
         if (mcpClient == null || !mcpClient.isConnected) {
-            return "Error: MCP client is not connected"
+            return "Ошибка: MCP клиент не подключен"
         }
 
         return try {
             val arguments = toolInput.entries.associate { (k, v) -> k to v }
             val result = mcpClient.callTool(toolName, arguments)
 
-            // Extract text content from result
+            // Извлекаем текстовый контент из результата
             result.content.mapNotNull { content ->
                 when (content.type) {
                     "text" -> content.text
                     else -> null
                 }
-            }.joinToString("\n").ifEmpty { "Tool executed successfully (no output)" }
+            }.joinToString("\n").ifEmpty { "Инструмент выполнен успешно (нет вывода)" }
         } catch (e: Exception) {
-            "Error executing tool: ${e.message}"
+            "Ошибка выполнения инструмента: ${e.message}"
         }
     }
 }
