@@ -37,7 +37,10 @@ class AnthropicClient(
             temperature = request.temperature,
             stream = false,
             messages = request.messages.map {
-                AnthropicMessageDto(it.role.name.toLowerCasePreservingASCIIRules(), it.content)
+                AnthropicMessageDto(
+                    role = it.role.name.toLowerCasePreservingASCIIRules(),
+                    content = AnthropicMessageContent.Text(it.content)
+                )
             }
         )
 
@@ -76,7 +79,10 @@ class AnthropicClient(
             temperature = request.temperature,
             stream = true,
             messages = request.messages.map {
-                AnthropicMessageDto(it.role.name.toLowerCasePreservingASCIIRules(), it.content)
+                AnthropicMessageDto(
+                    role = it.role.name.toLowerCasePreservingASCIIRules(),
+                    content = AnthropicMessageContent.Text(it.content)
+                )
             }
         )
 

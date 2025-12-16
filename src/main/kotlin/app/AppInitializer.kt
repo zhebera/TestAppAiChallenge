@@ -3,9 +3,12 @@ package org.example.app
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
+import org.example.data.mcp.McpClient
+import org.example.data.mcp.ToolHandler
 import org.example.data.network.LlmClient
 import org.example.data.network.OpenRouterSummaryClient
 import org.example.data.network.SummaryClient
+import org.example.data.network.ToolAwareClient
 import org.example.data.repository.ChatRepositoryImpl
 import org.example.domain.usecase.CompressHistoryUseCase
 import org.example.domain.usecase.SendMessageUseCase
@@ -39,16 +42,31 @@ object AppInitializer {
         client: HttpClient,
         json: Json,
         anthropicKey: String,
-        openRouterKey: String?
+        openRouterKey: String?,
+        mcpClient: McpClient? = null
     ): UseCases {
-        val claudeSonnetClient = AnthropicClient(
-            http = client,
-            json = json,
-            apiKey = anthropicKey,
-            model = AppConfig.CLAUDE_SONNET_MODEL,
-        )
+        val toolHandler = ToolHandler(mcpClient)
 
-        val clients: List<LlmClient> = listOf(claudeSonnetClient)
+        val mainClient: LlmClient = if (mcpClient != null) {
+            // Use tool-aware client when MCP is available
+            ToolAwareClient(
+                http = client,
+                json = json,
+                apiKey = anthropicKey,
+                model = AppConfig.CLAUDE_SONNET_MODEL,
+                toolHandler = toolHandler
+            )
+        } else {
+            // Fallback to regular client
+            AnthropicClient(
+                http = client,
+                json = json,
+                apiKey = anthropicKey,
+                model = AppConfig.CLAUDE_SONNET_MODEL,
+            )
+        }
+
+        val clients: List<LlmClient> = listOf(mainClient)
 
         val chatRepository = ChatRepositoryImpl(clients = clients)
 

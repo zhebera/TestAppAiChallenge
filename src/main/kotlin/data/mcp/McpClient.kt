@@ -173,4 +173,23 @@ object McpClientFactory {
         val transport = McpStdioTransport(config, json)
         return McpClient(transport, json)
     }
+
+    /**
+     * Create an MCP client for the Weather server (local)
+     * Uses the built-in WeatherMcpServer
+     */
+    fun createWeatherClient(
+        jarPath: String,
+        json: Json = createJson()
+    ): McpClient {
+        val config = McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", jarPath,
+                "org.example.mcp.server.WeatherMcpServerKt"
+            )
+        )
+        val transport = McpStdioTransport(config, json)
+        return McpClient(transport, json)
+    }
 }

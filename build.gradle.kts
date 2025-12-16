@@ -51,3 +51,12 @@ tasks.withType<JavaExec>().configureEach {
     standardInput = System.`in`
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
+
+// Task to run the Weather MCP Server standalone
+tasks.register<JavaExec>("runWeatherMcp") {
+    group = "application"
+    description = "Run the Weather MCP Server"
+    mainClass.set("org.example.mcp.server.WeatherMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+}
