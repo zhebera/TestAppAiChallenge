@@ -39,7 +39,7 @@ class ToolAwareClient(
         var lastModel = model
         var lastStopReason: String? = null
 
-        // Loop to handle tool calls
+        // Цикл для обработки вызовов инструментов
         while (true) {
             val body = AnthropicRequestDto(
                 model = model,
@@ -70,11 +70,11 @@ class ToolAwareClient(
             lastModel = dto.model ?: model
             lastStopReason = dto.stopReason
 
-            // Check for tool_use in response
+            // Проверяем наличие tool_use в ответе
             val toolUseBlocks = dto.content.filter { it.type == "tool_use" }
 
             if (toolUseBlocks.isEmpty() || dto.stopReason != "tool_use") {
-                // No tool calls, return final response
+                // Нет вызовов инструментов, возвращаем финальный ответ
                 val combinedText = dto.content
                     .filter { it.type == "text" }
                     .joinToString("") { it.text ?: "" }
@@ -89,10 +89,10 @@ class ToolAwareClient(
                 )
             }
 
-            // Process tool calls
-            println("\n[Tool call detected: ${toolUseBlocks.map { it.name }}]")
+            // Обрабатываем вызовы инструментов
+            println("\n[Обнаружен вызов инструмента: ${toolUseBlocks.map { it.name }}]")
 
-            // Add assistant message with tool_use blocks
+            // Добавляем сообщение ассистента с блоками tool_use
             currentMessages.add(
                 AnthropicMessageDto(
                     role = "assistant",
@@ -100,10 +100,10 @@ class ToolAwareClient(
                 )
             )
 
-            // Execute tools and add results
+            // Выполняем инструменты и добавляем результаты
             val toolResults = toolUseBlocks.map { toolBlock ->
                 val result = toolHandler.executeTool(toolBlock)
-                println("[Tool result for ${toolBlock.name}: ${result.take(100)}...]")
+                println("[Результат ${toolBlock.name}: ${result.take(100)}...]")
 
                 AnthropicContentBlockDto(
                     type = "tool_result",
@@ -122,8 +122,8 @@ class ToolAwareClient(
     }
 
     override fun sendStream(request: LlmRequest): Flow<StreamEvent> = flow {
-        // For simplicity, use non-streaming for tool-aware requests
-        // (streaming with tools is more complex)
+        // Для простоты используем не-стриминг режим для запросов с инструментами
+        // (стриминг с инструментами сложнее в реализации)
         val response = send(request)
 
         emit(StreamEvent.Complete(

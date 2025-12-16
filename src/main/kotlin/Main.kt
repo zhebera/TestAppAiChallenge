@@ -28,7 +28,7 @@ fun main() = runBlocking {
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
 
-        // Try to connect to Weather MCP server
+        // Пытаемся подключиться к Weather MCP серверу
         val mcpClient = tryConnectWeatherMcp()
 
         try {
@@ -42,12 +42,12 @@ fun main() = runBlocking {
 }
 
 /**
- * Try to connect to the Weather MCP server.
- * The server must be running separately via: ./gradlew runWeatherMcp
+ * Попытка подключения к Weather MCP серверу.
+ * Сервер запускается автоматически как дочерний процесс.
  */
 private suspend fun tryConnectWeatherMcp(): McpClient? {
     return try {
-        // Get classpath from system property or use default build output
+        // Получаем classpath из системного свойства
         val classpath = System.getProperty("java.class.path") ?: return null
 
         val mcpJson = McpClientFactory.createJson()
@@ -61,18 +61,18 @@ private suspend fun tryConnectWeatherMcp(): McpClient? {
         val transport = McpStdioTransport(config, mcpJson)
         val mcpClient = McpClient(transport, mcpJson)
 
-        println("Connecting to Weather MCP server...")
+        println("Подключение к Weather MCP серверу...")
         val result = mcpClient.connect()
-        println("Connected to MCP: ${result.serverInfo?.name} v${result.serverInfo?.version}")
+        println("Подключено к MCP: ${result.serverInfo?.name} v${result.serverInfo?.version}")
 
         val tools = mcpClient.listTools()
-        println("Available tools: ${tools.map { it.name }}")
+        println("Доступные инструменты: ${tools.map { it.name }}")
         println()
 
         mcpClient
     } catch (e: Exception) {
-        println("Warning: Could not connect to Weather MCP server: ${e.message}")
-        println("Weather tool will not be available.")
+        println("Предупреждение: Не удалось подключиться к Weather MCP серверу: ${e.message}")
+        println("Инструмент погоды будет недоступен.")
         println()
         null
     }
