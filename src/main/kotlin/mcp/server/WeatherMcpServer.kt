@@ -7,8 +7,8 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 /**
- * MCP Server for Weather data
- * Communicates via stdio (stdin/stdout) using JSON-RPC 2.0
+ * MCP Сервер для данных о погоде
+ * Общается через stdio (stdin/stdout) по протоколу JSON-RPC 2.0
  */
 fun main() {
     val server = WeatherMcpServer()
@@ -25,13 +25,13 @@ class WeatherMcpServer {
     private val tools = listOf(
         McpToolDefinition(
             name = "get_weather",
-            description = "Get current weather for a city. Returns temperature, wind speed, and weather conditions.",
+            description = "Получить текущую погоду для города. Возвращает температуру, скорость ветра и погодные условия.",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("city") {
                         put("type", "string")
-                        put("description", "City name (e.g., 'Moscow', 'New York', 'Tokyo')")
+                        put("description", "Название города (например, 'Москва', 'New York', 'Tokyo')")
                     }
                 }
                 putJsonArray("required") {
@@ -41,17 +41,17 @@ class WeatherMcpServer {
         ),
         McpToolDefinition(
             name = "get_forecast",
-            description = "Get weather forecast for multiple days. Returns daily temperature (min/max), precipitation, wind, and conditions.",
+            description = "Получить прогноз погоды на несколько дней. Возвращает температуру (мин/макс), осадки, ветер и условия.",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("city") {
                         put("type", "string")
-                        put("description", "City name (e.g., 'Moscow', 'New York', 'Tokyo')")
+                        put("description", "Название города (например, 'Москва', 'New York', 'Tokyo')")
                     }
                     putJsonObject("days") {
                         put("type", "integer")
-                        put("description", "Number of days to forecast (1-16, default: 7)")
+                        put("description", "Количество дней прогноза (1-16, по умолчанию: 7)")
                         put("minimum", 1)
                         put("maximum", 16)
                     }
@@ -180,19 +180,19 @@ class WeatherMcpServer {
                 when (val weatherResult = weatherApi.getCurrentWeather(geoResult.latitude, geoResult.longitude)) {
                     is WeatherResult.Success -> {
                         buildString {
-                            appendLine("Current weather for ${geoResult.name}, ${geoResult.country ?: ""}:")
-                            appendLine("Temperature: ${weatherResult.temperature}°C")
-                            appendLine("Conditions: ${weatherResult.weatherDescription}")
-                            appendLine("Wind: ${weatherResult.windSpeed} km/h (direction: ${weatherResult.windDirection}°)")
-                            appendLine("Time of observation: ${weatherResult.time}")
-                            append("Day/Night: ${if (weatherResult.isDay) "Day" else "Night"}")
+                            appendLine("Текущая погода в ${geoResult.name}, ${geoResult.country ?: ""}:")
+                            appendLine("Температура: ${weatherResult.temperature}°C")
+                            appendLine("Условия: ${weatherResult.weatherDescription}")
+                            appendLine("Ветер: ${weatherResult.windSpeed} км/ч (направление: ${weatherResult.windDirection}°)")
+                            appendLine("Время наблюдения: ${weatherResult.time}")
+                            append("День/Ночь: ${if (weatherResult.isDay) "День" else "Ночь"}")
                         }
                     }
-                    is WeatherResult.Error -> "Error: ${weatherResult.message}"
+                    is WeatherResult.Error -> "Ошибка: ${weatherResult.message}"
                 }
             }
-            is GeocodingResult.NotFound -> "Error: ${geoResult.message}"
-            is GeocodingResult.Error -> "Error: ${geoResult.message}"
+            is GeocodingResult.NotFound -> "Ошибка: ${geoResult.message}"
+            is GeocodingResult.Error -> "Ошибка: ${geoResult.message}"
         }
     }
 
@@ -202,22 +202,22 @@ class WeatherMcpServer {
                 when (val forecastResult = weatherApi.getForecast(geoResult.latitude, geoResult.longitude, days)) {
                     is ForecastResult.Success -> {
                         buildString {
-                            appendLine("Weather forecast for ${geoResult.name}, ${geoResult.country ?: ""} (${forecastResult.days.size} days):")
+                            appendLine("Прогноз погоды для ${geoResult.name}, ${geoResult.country ?: ""} (${forecastResult.days.size} дней):")
                             appendLine()
                             forecastResult.days.forEach { day ->
                                 appendLine("${day.date}:")
-                                appendLine("  Temperature: ${day.tempMin}°C - ${day.tempMax}°C")
-                                appendLine("  Conditions: ${day.weatherDescription}")
-                                appendLine("  Precipitation: ${day.precipitation} mm")
-                                appendLine("  Max wind: ${day.windSpeedMax} km/h")
+                                appendLine("  Температура: ${day.tempMin}°C - ${day.tempMax}°C")
+                                appendLine("  Условия: ${day.weatherDescription}")
+                                appendLine("  Осадки: ${day.precipitation} мм")
+                                appendLine("  Макс. ветер: ${day.windSpeedMax} км/ч")
                             }
                         }.trimEnd()
                     }
-                    is ForecastResult.Error -> "Error: ${forecastResult.message}"
+                    is ForecastResult.Error -> "Ошибка: ${forecastResult.message}"
                 }
             }
-            is GeocodingResult.NotFound -> "Error: ${geoResult.message}"
-            is GeocodingResult.Error -> "Error: ${geoResult.message}"
+            is GeocodingResult.NotFound -> "Ошибка: ${geoResult.message}"
+            is GeocodingResult.Error -> "Ошибка: ${geoResult.message}"
         }
     }
 
@@ -234,7 +234,7 @@ class WeatherMcpServer {
     }
 }
 
-// Server-side DTOs (separate from client DTOs to avoid confusion)
+// DTO для серверной стороны (отдельно от клиентских DTO)
 
 @Serializable
 data class JsonRpcRequestServer(

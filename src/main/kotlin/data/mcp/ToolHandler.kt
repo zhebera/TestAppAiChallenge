@@ -5,13 +5,13 @@ import org.example.data.api.AnthropicContentBlockDto
 import org.example.data.api.AnthropicToolDto
 
 /**
- * Handles tool calls from Claude API by routing them to MCP servers
+ * Обрабатывает вызовы инструментов от Claude API, перенаправляя их на MCP серверы
  */
 class ToolHandler(
     private val mcpClient: McpClient?
 ) {
     /**
-     * Get list of available tools for Claude API
+     * Получить список доступных инструментов для Claude API
      */
     suspend fun getAvailableTools(): List<AnthropicToolDto> {
         if (mcpClient == null || !mcpClient.isConnected) {

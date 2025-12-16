@@ -7,14 +7,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Client for Open-Meteo API (free, no API key required)
+ * Клиент для Open-Meteo API (бесплатный, без API ключа)
  * https://open-meteo.com/
  */
 class WeatherApi {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * Get current weather for a location
+     * Получить текущую погоду для локации
      */
     fun getCurrentWeather(latitude: Double, longitude: Double): WeatherResult {
         val url = URL(
@@ -50,8 +50,8 @@ class WeatherApi {
     }
 
     /**
-     * Get weather forecast for multiple days
-     * @param days Number of days (1-16)
+     * Получить прогноз погоды на несколько дней
+     * @param days Количество дней (1-16)
      */
     fun getForecast(latitude: Double, longitude: Double, days: Int = 7): ForecastResult {
         val forecastDays = days.coerceIn(1, 16)
@@ -94,7 +94,7 @@ class WeatherApi {
     }
 
     /**
-     * Get coordinates for a city name using Open-Meteo Geocoding API
+     * Получить координаты города по названию через Open-Meteo Geocoding API
      */
     fun geocodeCity(cityName: String): GeocodingResult {
         val encodedCity = java.net.URLEncoder.encode(cityName, "UTF-8")
@@ -128,26 +128,26 @@ class WeatherApi {
     }
 
     private fun describeWeatherCode(code: Int): String = when (code) {
-        0 -> "Clear sky"
-        1 -> "Mainly clear"
-        2 -> "Partly cloudy"
-        3 -> "Overcast"
-        45, 48 -> "Foggy"
-        51, 53, 55 -> "Drizzle"
-        56, 57 -> "Freezing drizzle"
-        61, 63, 65 -> "Rain"
-        66, 67 -> "Freezing rain"
-        71, 73, 75 -> "Snowfall"
-        77 -> "Snow grains"
-        80, 81, 82 -> "Rain showers"
-        85, 86 -> "Snow showers"
-        95 -> "Thunderstorm"
-        96, 99 -> "Thunderstorm with hail"
-        else -> "Unknown"
+        0 -> "Ясное небо"
+        1 -> "Преимущественно ясно"
+        2 -> "Переменная облачность"
+        3 -> "Пасмурно"
+        45, 48 -> "Туман"
+        51, 53, 55 -> "Морось"
+        56, 57 -> "Ледяная морось"
+        61, 63, 65 -> "Дождь"
+        66, 67 -> "Ледяной дождь"
+        71, 73, 75 -> "Снегопад"
+        77 -> "Снежная крупа"
+        80, 81, 82 -> "Ливень"
+        85, 86 -> "Снежный шквал"
+        95 -> "Гроза"
+        96, 99 -> "Гроза с градом"
+        else -> "Неизвестно"
     }
 }
 
-// Response DTOs
+// DTO для ответов API
 
 @Serializable
 data class OpenMeteoResponse(
@@ -177,7 +177,7 @@ data class GeocodingLocation(
     val country: String? = null
 )
 
-// Result types
+// Типы результатов
 
 sealed class WeatherResult {
     data class Success(
@@ -205,7 +205,7 @@ sealed class GeocodingResult {
     data class Error(val message: String) : GeocodingResult()
 }
 
-// Forecast DTOs
+// DTO для прогноза
 
 @Serializable
 data class ForecastResponse(
