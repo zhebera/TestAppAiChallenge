@@ -39,7 +39,9 @@ object DatabaseConfig {
             SchemaUtils.create(
                 MessagesTable,
                 CompressedHistoryTable,
-                SessionsTable
+                SessionsTable,
+                FootballNewsTable,
+                FootballSummaryTable
             )
         }
 

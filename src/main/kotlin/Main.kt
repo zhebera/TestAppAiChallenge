@@ -10,6 +10,7 @@ import org.example.data.mcp.McpServerConfig
 import org.example.data.mcp.McpStdioTransport
 import org.example.data.persistence.DatabaseConfig
 import org.example.data.persistence.MemoryRepository
+import org.example.data.scheduler.NewsScheduler
 import org.example.presentation.ConsoleInput
 
 fun main() = runBlocking {
@@ -25,27 +26,35 @@ fun main() = runBlocking {
             console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)"
         )
 
+        // Создаем и запускаем планировщик футбольных новостей (после получения API ключа)
+        val newsScheduler = NewsScheduler(
+            apiKey = anthropicKey,
+            intervalMs = 60_000L  // Проверка каждую минуту
+        )
+        newsScheduler.start()
+
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
 
-        // Пытаемся подключиться к Weather MCP серверу
-        val mcpClient = tryConnectWeatherMcp()
+        // Пытаемся подключиться к Football News MCP серверу
+        val mcpClient = tryConnectFootballMcp()
 
         try {
             val useCases = AppInitializer.buildUseCases(client, json, anthropicKey, openRouterKey, mcpClient)
             ChatLoop(console, useCases, memoryRepository).run()
         } finally {
             mcpClient?.disconnect()
+            newsScheduler.stop()
             client.close()
         }
     }
 }
 
 /**
- * Попытка подключения к Weather MCP серверу.
+ * Попытка подключения к Football News MCP серверу.
  * Сервер запускается автоматически как дочерний процесс.
  */
-private suspend fun tryConnectWeatherMcp(): McpClient? {
+private suspend fun tryConnectFootballMcp(): McpClient? {
     return try {
         // Получаем classpath из системного свойства
         val classpath = System.getProperty("java.class.path") ?: return null
@@ -55,13 +64,13 @@ private suspend fun tryConnectWeatherMcp(): McpClient? {
             command = "java",
             args = listOf(
                 "-cp", classpath,
-                "org.example.mcp.server.WeatherMcpServerKt"
+                "org.example.mcp.server.FootballMcpServerKt"
             )
         )
         val transport = McpStdioTransport(config, mcpJson)
         val mcpClient = McpClient(transport, mcpJson)
 
-        println("Подключение к Weather MCP серверу...")
+        println("Подключение к Football News MCP серверу...")
         val result = mcpClient.connect()
         println("Подключено к MCP: ${result.serverInfo?.name} v${result.serverInfo?.version}")
 
@@ -71,8 +80,8 @@ private suspend fun tryConnectWeatherMcp(): McpClient? {
 
         mcpClient
     } catch (e: Exception) {
-        println("Предупреждение: Не удалось подключиться к Weather MCP серверу: ${e.message}")
-        println("Инструмент погоды будет недоступен.")
+        println("Предупреждение: Не удалось подключиться к Football News MCP серверу: ${e.message}")
+        println("Инструмент новостей будет недоступен.")
         println()
         null
     }

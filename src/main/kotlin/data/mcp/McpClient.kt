@@ -175,10 +175,10 @@ object McpClientFactory {
     }
 
     /**
-     * Create an MCP client for the Weather server (local)
-     * Uses the built-in WeatherMcpServer
+     * Create an MCP client for the Football News server (local)
+     * Uses the built-in FootballMcpServer
      */
-    fun createWeatherClient(
+    fun createFootballNewsClient(
         jarPath: String,
         json: Json = createJson()
     ): McpClient {
@@ -186,7 +186,7 @@ object McpClientFactory {
             command = "java",
             args = listOf(
                 "-cp", jarPath,
-                "org.example.mcp.server.WeatherMcpServerKt"
+                "org.example.mcp.server.FootballMcpServerKt"
             )
         )
         val transport = McpStdioTransport(config, json)
