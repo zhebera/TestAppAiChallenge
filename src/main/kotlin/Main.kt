@@ -4,13 +4,10 @@ import kotlinx.coroutines.runBlocking
 import org.example.app.AppConfig
 import org.example.app.AppInitializer
 import org.example.app.ChatLoop
-import org.example.data.mcp.McpClient
 import org.example.data.mcp.McpClientFactory
-import org.example.data.mcp.McpServerConfig
-import org.example.data.mcp.McpStdioTransport
+import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.DatabaseConfig
 import org.example.data.persistence.MemoryRepository
-import org.example.data.scheduler.NewsScheduler
 import org.example.presentation.ConsoleInput
 
 fun main() = runBlocking {
@@ -26,63 +23,62 @@ fun main() = runBlocking {
             console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)"
         )
 
-        // Создаем и запускаем планировщик футбольных новостей (после получения API ключа)
-        val newsScheduler = NewsScheduler(
-            apiKey = anthropicKey,
-            intervalMs = 60_000L  // Проверка каждую минуту
-        )
-        newsScheduler.start()
-
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
 
-        // Пытаемся подключиться к Football News MCP серверу
-        val mcpClient = tryConnectFootballMcp()
+        // Подключаемся ко всем MCP серверам
+        val multiMcpClient = connectAllMcpServers()
 
         try {
-            val useCases = AppInitializer.buildUseCases(client, json, anthropicKey, openRouterKey, mcpClient)
+            val useCases = AppInitializer.buildUseCases(
+                client, json, anthropicKey, openRouterKey,
+                multiMcpClient = multiMcpClient
+            )
             ChatLoop(console, useCases, memoryRepository).run()
         } finally {
-            mcpClient?.disconnect()
-            newsScheduler.stop()
+            multiMcpClient?.disconnectAll()
             client.close()
         }
     }
 }
 
 /**
- * Попытка подключения к Football News MCP серверу.
- * Сервер запускается автоматически как дочерний процесс.
+ * Подключение ко всем локальным MCP серверам.
+ * Серверы запускаются автоматически как дочерние процессы.
  */
-private suspend fun tryConnectFootballMcp(): McpClient? {
-    return try {
-        // Получаем classpath из системного свойства
-        val classpath = System.getProperty("java.class.path") ?: return null
+private suspend fun connectAllMcpServers(): MultiMcpClient? {
+    val classpath = System.getProperty("java.class.path") ?: return null
 
-        val mcpJson = McpClientFactory.createJson()
-        val config = McpServerConfig(
-            command = "java",
-            args = listOf(
-                "-cp", classpath,
-                "org.example.mcp.server.FootballMcpServerKt"
-            )
-        )
-        val transport = McpStdioTransport(config, mcpJson)
-        val mcpClient = McpClient(transport, mcpJson)
+    val multiClient = MultiMcpClient()
+    val configs = McpClientFactory.getAllLocalServerConfigs(classpath)
 
-        println("Подключение к Football News MCP серверу...")
-        val result = mcpClient.connect()
-        println("Подключено к MCP: ${result.serverInfo?.name} v${result.serverInfo?.version}")
+    println("Подключение к MCP серверам...")
+    println()
 
-        val tools = mcpClient.listTools()
-        println("Доступные инструменты: ${tools.map { it.name }}")
+    var connectedCount = 0
+    val allTools = mutableListOf<String>()
+
+    for ((name, config) in configs) {
+        val result = multiClient.addServer(name, config)
+        if (result.success) {
+            println("  ✓ ${result.serverName}: ${result.serverInfo} (${result.toolCount} инструментов)")
+            allTools.addAll(result.tools)
+            connectedCount++
+        } else {
+            println("  ✗ ${result.serverName}: ${result.error}")
+        }
+    }
+
+    println()
+    if (connectedCount > 0) {
+        println("Подключено серверов: $connectedCount из ${configs.size}")
+        println("Доступные инструменты: $allTools")
         println()
-
-        mcpClient
-    } catch (e: Exception) {
-        println("Предупреждение: Не удалось подключиться к Football News MCP серверу: ${e.message}")
-        println("Инструмент новостей будет недоступен.")
+        return multiClient
+    } else {
+        println("Не удалось подключиться ни к одному MCP серверу.")
+        println("Инструменты будут недоступны.")
         println()
-        null
+        return null
     }
 }

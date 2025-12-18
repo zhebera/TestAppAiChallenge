@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
 import org.example.data.mcp.McpClient
+import org.example.data.mcp.MultiMcpClient
 import org.example.data.mcp.ToolHandler
 import org.example.data.network.LlmClient
 import org.example.data.network.OpenRouterSummaryClient
@@ -43,11 +44,12 @@ object AppInitializer {
         json: Json,
         anthropicKey: String,
         openRouterKey: String?,
-        mcpClient: McpClient? = null
+        mcpClient: McpClient? = null,
+        multiMcpClient: MultiMcpClient? = null
     ): UseCases {
-        val toolHandler = ToolHandler(mcpClient)
+        val toolHandler = ToolHandler(mcpClient, multiMcpClient)
 
-        val mainClient: LlmClient = if (mcpClient != null) {
+        val mainClient: LlmClient = if (mcpClient != null || multiMcpClient != null) {
             // Use tool-aware client when MCP is available
             ToolAwareClient(
                 http = client,

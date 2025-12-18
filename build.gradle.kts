@@ -52,11 +52,29 @@ tasks.withType<JavaExec>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
-// Task to run the Football News MCP Server standalone
-tasks.register<JavaExec>("runFootballMcp") {
-    group = "application"
-    description = "Run the Football News MCP Server"
-    mainClass.set("org.example.mcp.server.FootballMcpServerKt")
+// Task to run the Wikipedia MCP Server standalone
+tasks.register<JavaExec>("runWikipediaMcp") {
+    group = "mcp"
+    description = "Run the Wikipedia MCP Server"
+    mainClass.set("org.example.mcp.server.wikipedia.WikipediaMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+}
+
+// Task to run the Summarizer MCP Server standalone
+tasks.register<JavaExec>("runSummarizerMcp") {
+    group = "mcp"
+    description = "Run the Summarizer MCP Server"
+    mainClass.set("org.example.mcp.server.summarizer.SummarizerMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+}
+
+// Task to run the FileStorage MCP Server standalone
+tasks.register<JavaExec>("runFileStorageMcp") {
+    group = "mcp"
+    description = "Run the FileStorage MCP Server"
+    mainClass.set("org.example.mcp.server.filestorage.FileStorageMcpServerKt")
     classpath = sourceSets["main"].runtimeClasspath
     standardInput = System.`in`
 }

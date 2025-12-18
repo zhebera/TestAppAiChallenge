@@ -141,7 +141,7 @@ class McpClient(
 class McpException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * Factory for creating MCP clients
+ * Factory for creating MCP clients and configurations
  */
 object McpClientFactory {
 
@@ -175,21 +175,52 @@ object McpClientFactory {
     }
 
     /**
-     * Create an MCP client for the Football News server (local)
-     * Uses the built-in FootballMcpServer
+     * Конфигурация для Wikipedia MCP сервера
      */
-    fun createFootballNewsClient(
-        jarPath: String,
-        json: Json = createJson()
-    ): McpClient {
-        val config = McpServerConfig(
+    fun createWikipediaConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
             command = "java",
             args = listOf(
-                "-cp", jarPath,
-                "org.example.mcp.server.FootballMcpServerKt"
+                "-cp", classpath,
+                "org.example.mcp.server.wikipedia.WikipediaMcpServerKt"
             )
         )
-        val transport = McpStdioTransport(config, json)
-        return McpClient(transport, json)
+    }
+
+    /**
+     * Конфигурация для Summarizer MCP сервера
+     */
+    fun createSummarizerConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.summarizer.SummarizerMcpServerKt"
+            )
+        )
+    }
+
+    /**
+     * Конфигурация для FileStorage MCP сервера
+     */
+    fun createFileStorageConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.filestorage.FileStorageMcpServerKt"
+            )
+        )
+    }
+
+    /**
+     * Получить все локальные MCP конфигурации
+     */
+    fun getAllLocalServerConfigs(classpath: String): Map<String, McpServerConfig> {
+        return mapOf(
+            "wikipedia" to createWikipediaConfig(classpath),
+            "summarizer" to createSummarizerConfig(classpath),
+            "filestorage" to createFileStorageConfig(classpath)
+        )
     }
 }

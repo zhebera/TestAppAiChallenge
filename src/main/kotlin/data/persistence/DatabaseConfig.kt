@@ -40,8 +40,6 @@ object DatabaseConfig {
                 MessagesTable,
                 CompressedHistoryTable,
                 SessionsTable,
-                FootballNewsTable,
-                FootballSummaryTable
             )
         }
 
