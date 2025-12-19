@@ -78,3 +78,13 @@ tasks.register<JavaExec>("runFileStorageMcp") {
     classpath = sourceSets["main"].runtimeClasspath
     standardInput = System.`in`
 }
+
+// Task to run the Android Emulator MCP Server standalone
+tasks.register<JavaExec>("runAndroidEmulatorMcp") {
+    group = "mcp"
+    description = "Run the Android Emulator MCP Server"
+    mainClass.set("org.example.mcp.server.android.AndroidEmulatorMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+    environment("ANDROID_HOME", System.getenv("ANDROID_HOME") ?: "/Users/andrei/Library/Android/sdk")
+}

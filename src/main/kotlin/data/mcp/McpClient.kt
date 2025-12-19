@@ -214,13 +214,30 @@ object McpClientFactory {
     }
 
     /**
+     * Конфигурация для Android Emulator MCP сервера
+     */
+    fun createAndroidEmulatorConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.android.AndroidEmulatorMcpServerKt"
+            ),
+            env = mapOf(
+                "ANDROID_HOME" to (System.getenv("ANDROID_HOME") ?: "/Users/andrei/Library/Android/sdk")
+            )
+        )
+    }
+
+    /**
      * Получить все локальные MCP конфигурации
      */
     fun getAllLocalServerConfigs(classpath: String): Map<String, McpServerConfig> {
         return mapOf(
             "wikipedia" to createWikipediaConfig(classpath),
             "summarizer" to createSummarizerConfig(classpath),
-            "filestorage" to createFileStorageConfig(classpath)
+            "filestorage" to createFileStorageConfig(classpath),
+            "android" to createAndroidEmulatorConfig(classpath)
         )
     }
 }
