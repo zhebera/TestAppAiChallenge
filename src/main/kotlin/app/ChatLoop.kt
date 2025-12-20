@@ -35,8 +35,10 @@ class ChatLoop(
             memoryRepository = memoryRepository
         )
 
-        chatHistory.initSession()
-        printSessionInfo(chatHistory)
+        // Всегда начинаем с чистой истории для экономии токенов
+        chatHistory.initSession(createNew = true)
+        println("Новая сессия начата (история очищена)")
+        println()
 
         val context = CommandContext(
             console = console,

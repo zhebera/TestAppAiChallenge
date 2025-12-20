@@ -185,7 +185,7 @@ class AndroidEmulatorMcpServer {
                     // take_screenshot
                     addJsonObject {
                         put("name", "take_screenshot")
-                        put("description", "Скриншот экрана (base64 PNG)")
+                        put("description", "Скриншот экрана (сохраняется в файл ~/android-screenshots/)")
                         putJsonObject("inputSchema") {
                             put("type", "object")
                             putJsonObject("properties") {}
@@ -365,17 +365,9 @@ class AndroidEmulatorMcpServer {
         val result = emulatorController.startEmulator(avdName, headless)
 
         return if (result.success) {
-            buildString {
-                appendLine("✓ ${result.message}")
-                appendLine()
-                appendLine("Доступные AVD: ${emulatorController.listAvds().joinToString(", ")}")
-                if (!headless) {
-                    appendLine()
-                    appendLine("Совет: Используй wait_for_boot для ожидания полной загрузки перед взаимодействием.")
-                }
-            }
+            "✓ Эмулятор запускается. Используй wait_for_boot для ожидания загрузки."
         } else {
-            "✗ Ошибка: ${result.message}"
+            "✗ ${result.message}"
         }
     }
 
@@ -394,14 +386,7 @@ class AndroidEmulatorMcpServer {
         val result = emulatorController.waitForBoot(timeout.toLong())
 
         return if (result.success) {
-            buildString {
-                appendLine("✓ Эмулятор полностью загружен!")
-                appendLine()
-                val info = emulatorController.getEmulatorInfo()
-                if (info.success) {
-                    append(info.message)
-                }
-            }
+            "✓ Эмулятор загружен и готов к работе"
         } else {
             "✗ Ошибка: ${result.message}"
         }
@@ -426,22 +411,15 @@ class AndroidEmulatorMcpServer {
 
     private fun takeScreenshot(): String {
         if (!emulatorController.isEmulatorRunning()) {
-            return "✗ Ошибка: Эмулятор не запущен."
+            return "✗ Эмулятор не запущен"
         }
 
-        val result = adbController.takeScreenshot()
+        val result = adbController.takeScreenshotToFile()
 
         return if (result.success) {
-            buildString {
-                appendLine("✓ Скриншот сделан успешно")
-                appendLine()
-                appendLine("Base64 PNG (${result.output.length} символов):")
-                appendLine()
-                // Возвращаем base64 данные
-                append(result.output)
-            }
+            "✓ Скриншот: ${result.output}"
         } else {
-            "✗ Ошибка: ${result.output}"
+            "✗ ${result.output}"
         }
     }
 
@@ -526,28 +504,24 @@ class AndroidEmulatorMcpServer {
         val filter = arguments["filter"]?.jsonPrimitive?.content
 
         if (!emulatorController.isEmulatorRunning()) {
-            return "✗ Ошибка: Эмулятор не запущен."
+            return "✗ Эмулятор не запущен"
         }
 
         val result = adbController.listPackages(filter)
 
         return if (result.success) {
             val packages = result.output.lines().filter { it.isNotBlank() }
-            buildString {
-                appendLine("## Установленные приложения${if (filter != null) " (фильтр: $filter)" else ""}")
-                appendLine()
-                appendLine("Найдено: ${packages.size}")
-                appendLine()
-                packages.take(50).forEach { pkg ->
-                    appendLine("- $pkg")
-                }
-                if (packages.size > 50) {
-                    appendLine()
-                    appendLine("... и ещё ${packages.size - 50} приложений")
-                }
+            if (packages.isEmpty()) {
+                "Пакеты не найдены${if (filter != null) " (фильтр: $filter)" else ""}"
+            } else {
+                // Компактный вывод: максимум 15 пакетов
+                val maxShow = 15
+                val shown = packages.take(maxShow)
+                val remaining = packages.size - maxShow
+                shown.joinToString(", ") + if (remaining > 0) " (+$remaining)" else ""
             }
         } else {
-            "✗ Ошибка: ${result.output}"
+            "✗ ${result.output}"
         }
     }
 
@@ -562,33 +536,23 @@ class AndroidEmulatorMcpServer {
 
     private fun getScreenInfo(): String {
         if (!emulatorController.isEmulatorRunning()) {
-            return "✗ Ошибка: Эмулятор не запущен."
+            return "✗ Эмулятор не запущен"
         }
 
         val result = adbController.getScreenInfo()
         return if (result.success) {
-            buildString {
-                appendLine("## Информация об экране")
-                appendLine()
-                appendLine(result.output)
-            }
+            result.output.replace("\n", ", ")
         } else {
-            "✗ Ошибка: ${result.output}"
+            "✗ ${result.output}"
         }
     }
 
     private fun listAvds(): String {
         val avds = emulatorController.listAvds()
         return if (avds.isNotEmpty()) {
-            buildString {
-                appendLine("## Доступные AVD")
-                appendLine()
-                avds.forEachIndexed { index, avd ->
-                    appendLine("${index + 1}. $avd")
-                }
-            }
+            "AVD: ${avds.joinToString(", ")}"
         } else {
-            "AVD не найдены. Создайте AVD через Android Studio или avdmanager."
+            "AVD не найдены"
         }
     }
 

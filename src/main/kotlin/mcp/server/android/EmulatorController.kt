@@ -159,25 +159,17 @@ class EmulatorController(
     }
 
     /**
-     * Получает информацию о текущем эмуляторе
+     * Получает информацию о текущем эмуляторе (компактный вывод)
      */
     fun getEmulatorInfo(): EmulatorResult {
         if (!isEmulatorRunning()) {
             return EmulatorResult(false, "Emulator is not running")
         }
 
-        val deviceResult = adbController.executeCommand("devices", "-l")
         val propsResult = adbController.shell("getprop ro.build.version.sdk")
         val modelResult = adbController.shell("getprop ro.product.model")
-        val screenResult = adbController.getScreenInfo()
 
-        val info = buildString {
-            appendLine("=== Emulator Info ===")
-            appendLine("Device: ${deviceResult.output.lines().find { it.contains("emulator") } ?: "Unknown"}")
-            appendLine("Model: ${modelResult.output.trim()}")
-            appendLine("API Level: ${propsResult.output.trim()}")
-            appendLine("Screen: ${screenResult.output}")
-        }
+        val info = "Model: ${modelResult.output.trim()}, API: ${propsResult.output.trim()}"
 
         return EmulatorResult(true, info)
     }

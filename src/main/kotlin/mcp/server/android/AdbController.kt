@@ -82,7 +82,39 @@ class AdbController(
     }
 
     /**
-     * Делает скриншот и возвращает base64
+     * Делает скриншот и сохраняет в файл (для экономии токенов)
+     */
+    fun takeScreenshotToFile(): CommandResult {
+        val screenshotDir = File(System.getProperty("user.home"), "android-screenshots")
+        screenshotDir.mkdirs()
+
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(java.util.Date())
+        val screenshotFile = File(screenshotDir, "screenshot_$timestamp.png")
+
+        try {
+            // Делаем скриншот на устройстве
+            val screencapResult = shell("screencap -p /sdcard/screenshot_temp.png")
+            if (!screencapResult.success) {
+                return CommandResult(false, "Failed to capture screenshot: ${screencapResult.output}")
+            }
+
+            // Скачиваем файл
+            val pullResult = executeCommand("pull", "/sdcard/screenshot_temp.png", screenshotFile.absolutePath)
+            if (!pullResult.success) {
+                return CommandResult(false, "Failed to pull screenshot: ${pullResult.output}")
+            }
+
+            // Удаляем временный файл на устройстве
+            shell("rm /sdcard/screenshot_temp.png")
+
+            return CommandResult(true, screenshotFile.absolutePath)
+        } catch (e: Exception) {
+            return CommandResult(false, "Error taking screenshot: ${e.message}")
+        }
+    }
+
+    /**
+     * Делает скриншот и возвращает base64 (использовать с осторожностью - большой объём данных!)
      */
     fun takeScreenshot(): CommandResult {
         val tempFile = File.createTempFile("screenshot", ".png")
