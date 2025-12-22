@@ -1,5 +1,7 @@
 package org.example.data.persistence
 
+import org.example.data.rag.ChunksTable
+import org.example.data.rag.IndexMetadataTable
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -40,6 +42,9 @@ object DatabaseConfig {
                 MessagesTable,
                 CompressedHistoryTable,
                 SessionsTable,
+                // RAG таблицы
+                ChunksTable,
+                IndexMetadataTable,
             )
         }
 

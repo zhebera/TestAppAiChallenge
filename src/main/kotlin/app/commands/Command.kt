@@ -8,7 +8,8 @@ import org.example.presentation.ConsoleInput
 data class ChatState(
     var currentSystemPrompt: String,
     var currentTemperature: Double?,
-    var currentMaxTokens: Int
+    var currentMaxTokens: Int,
+    var ragEnabled: Boolean = false  // Автоматический RAG в чате
 )
 
 data class CommandContext(

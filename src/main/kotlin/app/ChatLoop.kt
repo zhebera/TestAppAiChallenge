@@ -5,6 +5,7 @@ import org.example.app.commands.CommandContext
 import org.example.app.commands.CommandRegistry
 import org.example.app.commands.CommandResult
 import org.example.data.persistence.MemoryRepository
+import org.example.data.rag.RagService
 import org.example.data.repository.StreamResult
 import org.example.domain.models.ChatHistory
 import org.example.domain.models.ChatRole
@@ -16,9 +17,10 @@ import org.example.utils.SYSTEM_FORMAT_PROMPT
 class ChatLoop(
     private val console: ConsoleInput,
     private val useCases: UseCases,
-    private val memoryRepository: MemoryRepository
+    private val memoryRepository: MemoryRepository,
+    private val ragService: RagService? = null
 ) {
-    private val commandRegistry = CommandRegistry()
+    private val commandRegistry = CommandRegistry(ragService)
 
     suspend fun run() {
         printWelcome()
@@ -75,6 +77,7 @@ class ChatLoop(
         println("  /maxTokens      - изменить max_tokens")
         println("  /memory         - работа с памятью сообщений")
         println("  /mcp            - подключение к GitHub MCP")
+        println("  /rag            - RAG: поиск по базе знаний")
         println()
     }
 
@@ -104,7 +107,34 @@ class ChatLoop(
             }
         }
 
-        chatHistory.addMessage(ChatRole.USER, text)
+        // RAG: добавляем контекст из базы знаний если включено
+        val messageWithRag = if (state.ragEnabled && ragService != null) {
+            try {
+                val ragContext = ragService.search(text, topK = 3, minSimilarity = 0.35f)
+                if (ragContext.results.isNotEmpty()) {
+                    // Показываем что RAG нашёл
+                    println("[RAG] Найдено ${ragContext.results.size} релевантных фрагментов:")
+                    ragContext.results.forEachIndexed { i, result ->
+                        val similarity = "%.0f%%".format(result.similarity * 100)
+                        println("  ${i + 1}. ${result.chunk.sourceFile} ($similarity)")
+                    }
+                    println()
+                    "${ragContext.formattedContext}\n\nВопрос пользователя: $text"
+                } else {
+                    println("[RAG] Релевантных фрагментов не найдено")
+                    println()
+                    text
+                }
+            } catch (e: Exception) {
+                println("[RAG] Ошибка поиска: ${e.message}")
+                println()
+                text
+            }
+        } else {
+            text
+        }
+
+        chatHistory.addMessage(ChatRole.USER, messageWithRag)
 
         try {
             val conversationWithSystem = buildConversation(chatHistory, state.currentSystemPrompt)

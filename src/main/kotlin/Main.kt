@@ -8,7 +8,12 @@ import org.example.data.mcp.McpClientFactory
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.DatabaseConfig
 import org.example.data.persistence.MemoryRepository
+import org.example.data.rag.ChunkingService
+import org.example.data.rag.OllamaEmbeddingClient
+import org.example.data.rag.RagService
+import org.example.data.rag.VectorStore
 import org.example.presentation.ConsoleInput
+import java.io.File
 
 fun main() = runBlocking {
     DatabaseConfig.init()
@@ -29,17 +34,46 @@ fun main() = runBlocking {
         // Подключаемся ко всем MCP серверам
         val multiMcpClient = connectAllMcpServers()
 
+        // Инициализация RAG
+        val ragService = initializeRag(client, json)
+
         try {
             val useCases = AppInitializer.buildUseCases(
                 client, json, anthropicKey, openRouterKey,
                 multiMcpClient = multiMcpClient
             )
-            ChatLoop(console, useCases, memoryRepository).run()
+            ChatLoop(console, useCases, memoryRepository, ragService).run()
         } finally {
             multiMcpClient?.disconnectAll()
             client.close()
         }
     }
+}
+
+/**
+ * Инициализация RAG сервиса.
+ * RAG работает независимо от основного LLM клиента.
+ */
+private fun initializeRag(
+    httpClient: io.ktor.client.HttpClient,
+    json: kotlinx.serialization.json.Json
+): RagService {
+    val embeddingClient = OllamaEmbeddingClient(httpClient, json)
+    val vectorStore = VectorStore()
+    val chunkingService = ChunkingService()
+    val ragDirectory = File("rag_files")
+
+    val ragService = RagService(embeddingClient, vectorStore, chunkingService, ragDirectory)
+
+    // Показываем статус RAG
+    val stats = ragService.getIndexStats()
+    if (stats.totalChunks > 0) {
+        println("RAG инициализирован: ${stats.totalChunks} чанков из ${stats.indexedFiles.size} файлов")
+    } else {
+        println("RAG инициализирован (индекс пуст, используйте /rag index)")
+    }
+
+    return ragService
 }
 
 /**

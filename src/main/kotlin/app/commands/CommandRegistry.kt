@@ -1,6 +1,10 @@
 package org.example.app.commands
 
-class CommandRegistry {
+import org.example.data.rag.RagService
+
+class CommandRegistry(
+    ragService: RagService? = null
+) {
     private val commands: List<Command> = listOf(
         ExitCommand(),
         NewSessionCommand(),
@@ -9,7 +13,8 @@ class CommandRegistry {
         MaxTokensCommand(),
         MemoryCommand(),
         ChangePromptCommand(),
-        McpCommand()
+        McpCommand(),
+        RagCommand(ragService)
     )
 
     suspend fun tryExecute(input: String, context: CommandContext): CommandResult {
