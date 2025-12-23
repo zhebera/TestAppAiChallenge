@@ -31,7 +31,10 @@ fun main() = runBlocking {
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
 
-        // Подключаемся ко всем MCP серверам
+        // Classpath для динамического подключения MCP серверов
+        val classpath = System.getProperty("java.class.path")
+
+        // Подключаемся ко всем MCP серверам (без Wikipedia по умолчанию)
         val multiMcpClient = connectAllMcpServers()
 
         // Инициализация RAG
@@ -42,7 +45,14 @@ fun main() = runBlocking {
                 client, json, anthropicKey, openRouterKey,
                 multiMcpClient = multiMcpClient
             )
-            ChatLoop(console, useCases, memoryRepository, ragService).run()
+            ChatLoop(
+                console = console,
+                useCases = useCases,
+                memoryRepository = memoryRepository,
+                ragService = ragService,
+                multiMcpClient = multiMcpClient,
+                classpath = classpath
+            ).run()
         } finally {
             multiMcpClient?.disconnectAll()
             client.close()

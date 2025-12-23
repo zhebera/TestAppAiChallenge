@@ -13,6 +13,7 @@ import java.util.*
  * - /rag reindex  - переиндексировать всё заново
  * - /rag search <запрос> - поиск по базе знаний
  * - /rag on/off   - включить/выключить автоматический RAG в чате
+ * - /rag debug    - включить/выключить показ полного запроса с RAG-контекстом
  */
 class RagCommand(
     private val ragService: RagService?
@@ -35,12 +36,13 @@ class RagCommand(
 
         when (subCommand.lowercase()) {
             "", "help" -> printHelp()
-            "status" -> showStatus()
+            "status" -> showStatus(context)
             "index" -> indexDocuments(forceReindex = false)
             "reindex" -> indexDocuments(forceReindex = true)
             "search" -> searchDocuments(args)
             "on" -> toggleRag(context, enabled = true)
             "off" -> toggleRag(context, enabled = false)
+            "debug" -> toggleDebug(context)
             else -> {
                 println("Неизвестная подкоманда: $subCommand")
                 printHelp()
@@ -61,6 +63,7 @@ class RagCommand(
             |  /rag search <q> - поиск по базе знаний
             |  /rag on         - включить автоматический RAG в чате
             |  /rag off        - выключить автоматический RAG
+            |  /rag debug      - вкл/выкл показ полного запроса с RAG-контекстом
             |
             |Перед использованием:
             |  1. Запустите Ollama: ollama serve
@@ -71,10 +74,17 @@ class RagCommand(
         println()
     }
 
-    private fun showStatus() {
+    private fun showStatus(context: CommandContext) {
         val stats = ragService!!.getIndexStats()
 
         println("=== Статус RAG индекса ===")
+        println()
+
+        // Показываем текущие настройки
+        val ragStatus = if (context.state.ragEnabled) "✓ включён" else "○ выключен"
+        val debugStatus = if (context.state.ragDebug) "✓ включён" else "○ выключен"
+        println("RAG в чате: $ragStatus")
+        println("Режим отладки: $debugStatus")
         println()
 
         if (stats.totalChunks == 0L) {
@@ -198,6 +208,17 @@ class RagCommand(
             }
         } else {
             println("RAG выключен.")
+        }
+        println()
+    }
+
+    private fun toggleDebug(context: CommandContext) {
+        context.state.ragDebug = !context.state.ragDebug
+        if (context.state.ragDebug) {
+            println("Режим отладки RAG включён.")
+            println("При отправке сообщений будет показан полный запрос с RAG-контекстом.")
+        } else {
+            println("Режим отладки RAG выключен.")
         }
         println()
     }

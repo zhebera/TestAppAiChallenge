@@ -4,6 +4,7 @@ import org.example.app.commands.ChatState
 import org.example.app.commands.CommandContext
 import org.example.app.commands.CommandRegistry
 import org.example.app.commands.CommandResult
+import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.MemoryRepository
 import org.example.data.rag.RagService
 import org.example.data.repository.StreamResult
@@ -18,7 +19,9 @@ class ChatLoop(
     private val console: ConsoleInput,
     private val useCases: UseCases,
     private val memoryRepository: MemoryRepository,
-    private val ragService: RagService? = null
+    private val ragService: RagService? = null,
+    private val multiMcpClient: MultiMcpClient? = null,
+    private val classpath: String? = null
 ) {
     private val commandRegistry = CommandRegistry(ragService)
 
@@ -47,7 +50,9 @@ class ChatLoop(
             chatHistory = chatHistory,
             memoryRepository = memoryRepository,
             useCases = useCases,
-            state = state
+            state = state,
+            multiMcpClient = multiMcpClient,
+            classpath = classpath
         )
 
         while (true) {
@@ -76,8 +81,8 @@ class ChatLoop(
         println("  /temperature    - изменить temperature (0.0 - 1.0)")
         println("  /maxTokens      - изменить max_tokens")
         println("  /memory         - работа с памятью сообщений")
-        println("  /mcp            - подключение к GitHub MCP")
-        println("  /rag            - RAG: поиск по базе знаний")
+        println("  /mcp            - управление MCP серверами (wikipedia, summarizer, ...)")
+        println("  /rag            - RAG: поиск по локальной базе знаний")
         println()
     }
 
@@ -107,30 +112,61 @@ class ChatLoop(
             }
         }
 
+        // Показываем режим запроса
+        val mode = buildString {
+            if (state.ragEnabled) append("[RAG]") else append("[без RAG]")
+            if (multiMcpClient?.isConnected == true) {
+                append(" [MCP: ${multiMcpClient.connectedServers.joinToString(", ")}]")
+            }
+        }
+        println(mode)
+
         // RAG: добавляем контекст из базы знаний если включено
         val messageWithRag = if (state.ragEnabled && ragService != null) {
             try {
                 val ragContext = ragService.search(text, topK = 3, minSimilarity = 0.35f)
                 if (ragContext.results.isNotEmpty()) {
                     // Показываем что RAG нашёл
-                    println("[RAG] Найдено ${ragContext.results.size} релевантных фрагментов:")
+                    println("Найдено ${ragContext.results.size} релевантных фрагментов:")
                     ragContext.results.forEachIndexed { i, result ->
                         val similarity = "%.0f%%".format(result.similarity * 100)
                         println("  ${i + 1}. ${result.chunk.sourceFile} ($similarity)")
                     }
                     println()
-                    "${ragContext.formattedContext}\n\nВопрос пользователя: $text"
+
+                    val enrichedMessage = "${ragContext.formattedContext}\n\nВопрос пользователя: $text"
+
+                    // Debug: показываем полный запрос
+                    if (state.ragDebug) {
+                        println("─".repeat(60))
+                        println("[DEBUG] Полный запрос с RAG-контекстом:")
+                        println("─".repeat(60))
+                        println(enrichedMessage)
+                        println("─".repeat(60))
+                        println()
+                    }
+
+                    enrichedMessage
                 } else {
-                    println("[RAG] Релевантных фрагментов не найдено")
+                    println("Релевантных фрагментов не найдено")
                     println()
                     text
                 }
             } catch (e: Exception) {
-                println("[RAG] Ошибка поиска: ${e.message}")
+                println("Ошибка поиска: ${e.message}")
                 println()
                 text
             }
         } else {
+            // Debug: показываем что отправляется без RAG
+            if (state.ragDebug) {
+                println("─".repeat(60))
+                println("[DEBUG] Запрос без RAG:")
+                println("─".repeat(60))
+                println(text)
+                println("─".repeat(60))
+                println()
+            }
             text
         }
 

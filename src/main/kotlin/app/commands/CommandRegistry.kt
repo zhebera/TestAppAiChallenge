@@ -13,7 +13,7 @@ class CommandRegistry(
         MaxTokensCommand(),
         MemoryCommand(),
         ChangePromptCommand(),
-        McpCommand(),
+        McpControlCommand(),  // Управление локальными MCP серверами
         RagCommand(ragService)
     )
 

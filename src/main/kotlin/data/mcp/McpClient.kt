@@ -230,9 +230,22 @@ object McpClientFactory {
     }
 
     /**
-     * Получить все локальные MCP конфигурации
+     * Получить все локальные MCP конфигурации (без Wikipedia по умолчанию -
+     * используйте RAG вместо него или включите вручную через /mcp connect wikipedia)
      */
     fun getAllLocalServerConfigs(classpath: String): Map<String, McpServerConfig> {
+        return mapOf(
+            // "wikipedia" - отключён по умолчанию (дублирует RAG)
+            "summarizer" to createSummarizerConfig(classpath),
+            "filestorage" to createFileStorageConfig(classpath),
+            "android" to createAndroidEmulatorConfig(classpath)
+        )
+    }
+
+    /**
+     * Получить все доступные MCP конфигурации (включая отключённые)
+     */
+    fun getAllAvailableServerConfigs(classpath: String): Map<String, McpServerConfig> {
         return mapOf(
             "wikipedia" to createWikipediaConfig(classpath),
             "summarizer" to createSummarizerConfig(classpath),

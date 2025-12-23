@@ -1,6 +1,7 @@
 package org.example.app.commands
 
 import org.example.app.UseCases
+import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.MemoryRepository
 import org.example.domain.models.ChatHistory
 import org.example.presentation.ConsoleInput
@@ -9,7 +10,8 @@ data class ChatState(
     var currentSystemPrompt: String,
     var currentTemperature: Double?,
     var currentMaxTokens: Int,
-    var ragEnabled: Boolean = false  // Автоматический RAG в чате
+    var ragEnabled: Boolean = false,  // Автоматический RAG в чате
+    var ragDebug: Boolean = false     // Показывать полный запрос с RAG-контекстом
 )
 
 data class CommandContext(
@@ -17,7 +19,9 @@ data class CommandContext(
     val chatHistory: ChatHistory,
     val memoryRepository: MemoryRepository,
     val useCases: UseCases,
-    val state: ChatState
+    val state: ChatState,
+    val multiMcpClient: MultiMcpClient? = null,  // Для управления MCP серверами
+    val classpath: String? = null                 // Для подключения новых MCP серверов
 )
 
 sealed class CommandResult {
