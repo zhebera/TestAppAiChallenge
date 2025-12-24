@@ -23,14 +23,29 @@ data class RagContext(
 )
 
 /**
+ * Результат RAG-поиска с реранкингом.
+ */
+data class RagContextWithReranking(
+    val query: String,
+    val originalResults: List<SearchResult>,      // Исходные результаты (до реранкинга)
+    val rerankedResults: List<RerankedResult>,    // Результаты после реранкинга
+    val finalResults: List<SearchResult>,         // Финальные отфильтрованные результаты
+    val formattedContext: String,                 // Готовый текст для вставки в промпт
+    val wasReranked: Boolean,                     // Был ли применён реранкинг
+    val filteredCount: Int                        // Сколько результатов отфильтровано
+)
+
+/**
  * Главный сервис RAG (Retrieval-Augmented Generation).
  * Объединяет индексацию документов и поиск по ним.
+ * Поддерживает реранкинг и фильтрацию результатов.
  */
 class RagService(
     private val embeddingClient: OllamaEmbeddingClient,
     private val vectorStore: VectorStore,
     private val chunkingService: ChunkingService = ChunkingService(),
-    private val ragDirectory: File = File("rag_files")
+    private val ragDirectory: File = File("rag_files"),
+    private val rerankerService: RerankerService? = null
 ) {
     companion object {
         private const val EMBEDDING_MODEL = "mxbai-embed-large"
@@ -175,6 +190,71 @@ class RagService(
     }
 
     /**
+     * Поиск с реранкингом и фильтрацией.
+     * Двухэтапный процесс:
+     * 1. Первичный поиск по cosine similarity (широкий охват)
+     * 2. Реранкинг и фильтрация по порогу (точность)
+     */
+    suspend fun searchWithReranking(
+        query: String,
+        topK: Int = 5,
+        initialTopK: Int = 10,
+        minSimilarity: Float = 0.25f,
+        rerankerConfig: RerankerConfig = RerankerConfig()
+    ): RagContextWithReranking {
+        // Этап 1: Широкий первичный поиск
+        val queryEmbedding = embeddingClient.embed(query)
+        val initialResults = vectorStore.search(queryEmbedding, initialTopK, minSimilarity)
+
+        // Если реранкер не настроен, возвращаем без реранкинга
+        if (rerankerService == null) {
+            return RagContextWithReranking(
+                query = query,
+                originalResults = initialResults,
+                rerankedResults = emptyList(),
+                finalResults = initialResults.take(topK),
+                formattedContext = formatContextForLlm(initialResults.take(topK)),
+                wasReranked = false,
+                filteredCount = 0
+            )
+        }
+
+        // Этап 2: Реранкинг
+        val rerankedResults = rerankerService.rerank(query, initialResults, rerankerConfig)
+
+        // Фильтрация по порогу и ограничение topK
+        val filteredResults = rerankerService.filterByThreshold(rerankedResults, rerankerConfig.threshold)
+        val finalResults = filteredResults.take(topK).map { it.original }
+
+        return RagContextWithReranking(
+            query = query,
+            originalResults = initialResults,
+            rerankedResults = rerankedResults,
+            finalResults = finalResults,
+            formattedContext = formatContextForReranked(filteredResults.take(topK)),
+            wasReranked = true,
+            filteredCount = rerankedResults.size - filteredResults.size
+        )
+    }
+
+    /**
+     * Сравнение результатов с реранкингом и без.
+     * Полезно для демонстрации эффективности реранкинга.
+     */
+    suspend fun compareResults(
+        query: String,
+        topK: Int = 5,
+        rerankerConfig: RerankerConfig = RerankerConfig()
+    ): ComparisonResult? {
+        if (rerankerService == null) return null
+
+        val queryEmbedding = embeddingClient.embed(query)
+        val results = vectorStore.search(queryEmbedding, rerankerConfig.maxCandidates, 0.25f)
+
+        return rerankerService.compare(query, results, rerankerConfig)
+    }
+
+    /**
      * Получить статистику индекса.
      */
     fun getIndexStats(): IndexStats {
@@ -187,6 +267,36 @@ class RagService(
             indexedFiles = files,
             lastIndexTime = lastIndexTime
         )
+    }
+
+    /**
+     * Проверка доступности реранкера.
+     */
+    fun hasReranker(): Boolean = rerankerService != null
+
+    /**
+     * Форматирование реранкнутых результатов в контекст для LLM.
+     */
+    private fun formatContextForReranked(results: List<RerankedResult>): String {
+        if (results.isEmpty()) {
+            return ""
+        }
+
+        val sb = StringBuilder()
+        sb.appendLine("=== Релевантная информация из базы знаний (с реранкингом) ===")
+        sb.appendLine()
+
+        results.forEachIndexed { index, result ->
+            val rerankedScore = "%.1f%%".format(result.rerankedScore * 100)
+            val originalScore = "%.1f%%".format(result.originalScore * 100)
+            sb.appendLine("--- Источник ${index + 1}: ${result.original.chunk.sourceFile} ---")
+            sb.appendLine("    (релевантность: $rerankedScore, исходный скор: $originalScore)")
+            sb.appendLine(result.original.chunk.content)
+            sb.appendLine()
+        }
+
+        sb.appendLine("=== Конец контекста из базы знаний ===")
+        return sb.toString()
     }
 
     /**

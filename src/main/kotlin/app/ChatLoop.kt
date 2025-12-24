@@ -7,6 +7,8 @@ import org.example.app.commands.CommandResult
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.MemoryRepository
 import org.example.data.rag.RagService
+import org.example.data.rag.RerankerConfig
+import org.example.data.rag.RerankerMethod
 import org.example.data.repository.StreamResult
 import org.example.domain.models.ChatHistory
 import org.example.domain.models.ChatRole
@@ -124,17 +126,70 @@ class ChatLoop(
         // RAG: добавляем контекст из базы знаний если включено
         val messageWithRag = if (state.ragEnabled && ragService != null) {
             try {
-                val ragContext = ragService.search(text, topK = 3, minSimilarity = 0.35f)
-                if (ragContext.results.isNotEmpty()) {
-                    // Показываем что RAG нашёл
-                    println("Найдено ${ragContext.results.size} релевантных фрагментов:")
-                    ragContext.results.forEachIndexed { i, result ->
-                        val similarity = "%.0f%%".format(result.similarity * 100)
-                        println("  ${i + 1}. ${result.chunk.sourceFile} ($similarity)")
-                    }
-                    println()
+                val useReranking = state.rerankerEnabled && ragService.hasReranker()
 
-                    val enrichedMessage = "${ragContext.formattedContext}\n\nВопрос пользователя: $text"
+                val (formattedContext, resultsInfo) = if (useReranking) {
+                    // Поиск с реранкингом
+                    val config = RerankerConfig(
+                        method = when (state.rerankerMethod.lowercase()) {
+                            "cross" -> RerankerMethod.CROSS_ENCODER
+                            "llm" -> RerankerMethod.LLM_SCORING
+                            "keyword" -> RerankerMethod.KEYWORD_HYBRID
+                            else -> RerankerMethod.CROSS_ENCODER
+                        },
+                        threshold = state.rerankerThreshold,
+                        useKeywordBoost = true,
+                        maxCandidates = 10
+                    )
+                    val result = ragService.searchWithReranking(
+                        query = text,
+                        topK = 3,
+                        initialTopK = 8,
+                        minSimilarity = 0.25f,
+                        rerankerConfig = config
+                    )
+
+                    // Формируем информацию о результатах
+                    val info = buildString {
+                        if (result.finalResults.isNotEmpty()) {
+                            appendLine("Найдено ${result.finalResults.size} релевантных фрагментов (с реранкингом):")
+                            result.rerankedResults
+                                .filter { !it.wasFiltered }
+                                .take(3)
+                                .forEachIndexed { i, reranked ->
+                                    val newScore = "%.0f%%".format(reranked.rerankedScore * 100)
+                                    val oldScore = "%.0f%%".format(reranked.originalScore * 100)
+                                    appendLine("  ${i + 1}. ${reranked.original.chunk.sourceFile} ($newScore, было $oldScore)")
+                                }
+                            if (result.filteredCount > 0) {
+                                appendLine("  (отфильтровано ${result.filteredCount} нерелевантных)")
+                            }
+                        } else {
+                            appendLine("Релевантных фрагментов не найдено (после фильтрации)")
+                        }
+                    }
+                    Pair(result.formattedContext, info)
+                } else {
+                    // Обычный поиск без реранкинга
+                    val ragContext = ragService.search(text, topK = 3, minSimilarity = 0.35f)
+                    val info = buildString {
+                        if (ragContext.results.isNotEmpty()) {
+                            appendLine("Найдено ${ragContext.results.size} релевантных фрагментов:")
+                            ragContext.results.forEachIndexed { i, result ->
+                                val similarity = "%.0f%%".format(result.similarity * 100)
+                                appendLine("  ${i + 1}. ${result.chunk.sourceFile} ($similarity)")
+                            }
+                        } else {
+                            appendLine("Релевантных фрагментов не найдено")
+                        }
+                    }
+                    Pair(ragContext.formattedContext, info)
+                }
+
+                println(resultsInfo)
+
+                if (formattedContext.isNotEmpty()) {
+                    val enrichedMessage = "$formattedContext\n\nВопрос пользователя: $text"
 
                     // Debug: показываем полный запрос
                     if (state.ragDebug) {
@@ -148,8 +203,6 @@ class ChatLoop(
 
                     enrichedMessage
                 } else {
-                    println("Релевантных фрагментов не найдено")
-                    println()
                     text
                 }
             } catch (e: Exception) {

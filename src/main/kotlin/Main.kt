@@ -11,6 +11,7 @@ import org.example.data.persistence.MemoryRepository
 import org.example.data.rag.ChunkingService
 import org.example.data.rag.OllamaEmbeddingClient
 import org.example.data.rag.RagService
+import org.example.data.rag.RerankerService
 import org.example.data.rag.VectorStore
 import org.example.presentation.ConsoleInput
 import java.io.File
@@ -61,7 +62,7 @@ fun main() = runBlocking {
 }
 
 /**
- * Инициализация RAG сервиса.
+ * Инициализация RAG сервиса с поддержкой реранкинга.
  * RAG работает независимо от основного LLM клиента.
  */
 private fun initializeRag(
@@ -73,14 +74,29 @@ private fun initializeRag(
     val chunkingService = ChunkingService()
     val ragDirectory = File("rag_files")
 
-    val ragService = RagService(embeddingClient, vectorStore, chunkingService, ragDirectory)
+    // Создаём реранкер для улучшения качества поиска
+    val rerankerService = RerankerService(
+        httpClient = httpClient,
+        json = json,
+        embeddingClient = embeddingClient
+    )
+
+    val ragService = RagService(
+        embeddingClient = embeddingClient,
+        vectorStore = vectorStore,
+        chunkingService = chunkingService,
+        ragDirectory = ragDirectory,
+        rerankerService = rerankerService
+    )
 
     // Показываем статус RAG
     val stats = ragService.getIndexStats()
     if (stats.totalChunks > 0) {
         println("RAG инициализирован: ${stats.totalChunks} чанков из ${stats.indexedFiles.size} файлов")
+        println("  Реранкинг: включён (методы: cross, llm, keyword)")
     } else {
         println("RAG инициализирован (индекс пуст, используйте /rag index)")
+        println("  Реранкинг: доступен")
     }
 
     return ragService
