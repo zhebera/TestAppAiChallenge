@@ -276,6 +276,7 @@ class RagService(
 
     /**
      * Форматирование реранкнутых результатов в контекст для LLM.
+     * Использует XML-теги для чёткой разметки источников.
      */
     private fun formatContextForReranked(results: List<RerankedResult>): String {
         if (results.isEmpty()) {
@@ -283,24 +284,26 @@ class RagService(
         }
 
         val sb = StringBuilder()
-        sb.appendLine("=== Релевантная информация из базы знаний (с реранкингом) ===")
+        sb.appendLine("<rag_context>")
+        sb.appendLine("Ниже представлена информация из локальной базы документов.")
+        sb.appendLine("ВАЖНО: При использовании этой информации укажи источник в формате [RAG: имя_файла]")
         sb.appendLine()
 
         results.forEachIndexed { index, result ->
-            val rerankedScore = "%.1f%%".format(result.rerankedScore * 100)
-            val originalScore = "%.1f%%".format(result.originalScore * 100)
-            sb.appendLine("--- Источник ${index + 1}: ${result.original.chunk.sourceFile} ---")
-            sb.appendLine("    (релевантность: $rerankedScore, исходный скор: $originalScore)")
-            sb.appendLine(result.original.chunk.content)
+            val rerankedScore = "%.0f%%".format(result.rerankedScore * 100)
+            sb.appendLine("<document source=\"${result.original.chunk.sourceFile}\" relevance=\"$rerankedScore\">")
+            sb.appendLine(result.original.chunk.content.trim())
+            sb.appendLine("</document>")
             sb.appendLine()
         }
 
-        sb.appendLine("=== Конец контекста из базы знаний ===")
+        sb.appendLine("</rag_context>")
         return sb.toString()
     }
 
     /**
      * Форматирование результатов поиска в контекст для LLM.
+     * Использует XML-теги для чёткой разметки источников.
      */
     private fun formatContextForLlm(results: List<SearchResult>): String {
         if (results.isEmpty()) {
@@ -308,17 +311,20 @@ class RagService(
         }
 
         val sb = StringBuilder()
-        sb.appendLine("=== Релевантная информация из базы знаний ===")
+        sb.appendLine("<rag_context>")
+        sb.appendLine("Ниже представлена информация из локальной базы документов.")
+        sb.appendLine("ВАЖНО: При использовании этой информации укажи источник в формате [RAG: имя_файла]")
         sb.appendLine()
 
         results.forEachIndexed { index, result ->
-            val similarity = "%.1f%%".format(result.similarity * 100)
-            sb.appendLine("--- Источник ${index + 1}: ${result.chunk.sourceFile} (релевантность: $similarity) ---")
-            sb.appendLine(result.chunk.content)
+            val similarity = "%.0f%%".format(result.similarity * 100)
+            sb.appendLine("<document source=\"${result.chunk.sourceFile}\" relevance=\"$similarity\">")
+            sb.appendLine(result.chunk.content.trim())
+            sb.appendLine("</document>")
             sb.appendLine()
         }
 
-        sb.appendLine("=== Конец контекста из базы знаний ===")
+        sb.appendLine("</rag_context>")
         return sb.toString()
     }
 }

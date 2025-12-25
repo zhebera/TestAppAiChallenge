@@ -10,7 +10,7 @@ data class ChatState(
     var currentSystemPrompt: String,
     var currentTemperature: Double?,
     var currentMaxTokens: Int,
-    var ragEnabled: Boolean = false,      // Автоматический RAG в чате
+    var ragEnabled: Boolean = true,       // Автоматический RAG в чате (включён по умолчанию)
     var ragDebug: Boolean = false,        // Показывать полный запрос с RAG-контекстом
     var rerankerEnabled: Boolean = true,  // Включить реранкинг результатов
     var rerankerThreshold: Float = 0.4f,  // Порог отсечения после реранкинга (0.0-1.0)

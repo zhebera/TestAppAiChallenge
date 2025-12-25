@@ -15,7 +15,7 @@ import org.example.domain.models.ChatRole
 import org.example.domain.models.LlmAnswer
 import org.example.domain.models.LlmMessage
 import org.example.presentation.ConsoleInput
-import org.example.utils.SYSTEM_FORMAT_PROMPT
+import org.example.utils.SYSTEM_PROMPT_WITH_SOURCES
 
 class ChatLoop(
     private val console: ConsoleInput,
@@ -31,7 +31,7 @@ class ChatLoop(
         printWelcome()
 
         val state = ChatState(
-            currentSystemPrompt = SYSTEM_FORMAT_PROMPT,
+            currentSystemPrompt = SYSTEM_PROMPT_WITH_SOURCES,
             currentTemperature = null,
             currentMaxTokens = AppConfig.DEFAULT_MAX_TOKENS
         )

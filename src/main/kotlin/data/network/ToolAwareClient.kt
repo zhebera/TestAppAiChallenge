@@ -100,15 +100,26 @@ class ToolAwareClient(
                 )
             )
 
-            // Выполняем инструменты и добавляем результаты
+            // Выполняем инструменты и добавляем результаты с маркировкой MCP
             val toolResults = toolUseBlocks.map { toolBlock ->
                 val result = toolHandler.executeTool(toolBlock)
                 println("[Результат ${toolBlock.name}: ${result.take(100)}...]")
 
+                // Определяем название MCP-сервиса по имени инструмента
+                val serviceName = getMcpServiceName(toolBlock.name ?: "unknown")
+
+                // Оборачиваем результат в mcp_context для атрибуции источника
+                val markedResult = """
+<mcp_context source="$serviceName" tool="${toolBlock.name}">
+$result
+</mcp_context>
+ВАЖНО: При использовании этой информации укажи источник в формате [MCP: $serviceName]
+""".trimIndent()
+
                 AnthropicContentBlockDto(
                     type = "tool_result",
                     toolUseId = toolBlock.id,
-                    content = result
+                    content = markedResult
                 )
             }
 
@@ -133,5 +144,26 @@ class ToolAwareClient(
             outputTokens = response.outputTokens,
             stopReason = response.stopReason
         ))
+    }
+
+    /**
+     * Определяет название MCP-сервиса по имени инструмента.
+     * Используется для атрибуции источников в ответе ИИ.
+     */
+    private fun getMcpServiceName(toolName: String): String {
+        return when {
+            toolName.contains("wikipedia", ignoreCase = true) -> "Wikipedia"
+            toolName.contains("search_wikipedia") -> "Wikipedia"
+            toolName.contains("get_article") -> "Wikipedia"
+            toolName.contains("summarize", ignoreCase = true) -> "Summarizer"
+            toolName.contains("file", ignoreCase = true) -> "FileStorage"
+            toolName.contains("save_to_file") -> "FileStorage"
+            toolName.contains("read_file") -> "FileStorage"
+            toolName.contains("list_files") -> "FileStorage"
+            toolName.contains("delete_file") -> "FileStorage"
+            toolName.contains("emulator", ignoreCase = true) -> "AndroidEmulator"
+            toolName.contains("adb", ignoreCase = true) -> "AndroidEmulator"
+            else -> toolName.replaceFirstChar { it.uppercase() }
+        }
     }
 }
