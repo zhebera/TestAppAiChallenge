@@ -43,6 +43,8 @@ class RagCommand(
             "status" -> showStatus(context)
             "index" -> indexDocuments(forceReindex = false)
             "reindex" -> indexDocuments(forceReindex = true)
+            "index-project" -> indexProjectFiles(forceReindex = false)
+            "reindex-project" -> indexProjectFiles(forceReindex = true)
             "search" -> searchDocuments(args, context)
             "on" -> toggleRag(context, enabled = true)
             "off" -> toggleRag(context, enabled = false)
@@ -65,13 +67,15 @@ class RagCommand(
             |RAG (Retrieval-Augmented Generation) - поиск по базе знаний
             |
             |Основные команды:
-            |  /rag status     - показать статус индекса и настройки реранкинга
-            |  /rag index      - проиндексировать документы из rag_files/
-            |  /rag reindex    - переиндексировать всё заново
-            |  /rag search <q> - поиск по базе знаний (с реранкингом если включён)
-            |  /rag on         - включить автоматический RAG в чате
-            |  /rag off        - выключить автоматический RAG
-            |  /rag debug      - вкл/выкл показ полного запроса с RAG-контекстом
+            |  /rag status           - показать статус индекса и настройки реранкинга
+            |  /rag index            - проиндексировать документы из rag_files/
+            |  /rag reindex          - переиндексировать всё заново
+            |  /rag index-project    - проиндексировать файлы проекта (.kt, .md, .kts)
+            |  /rag reindex-project  - переиндексировать файлы проекта заново
+            |  /rag search <q>       - поиск по базе знаний (с реранкингом если включён)
+            |  /rag on               - включить автоматический RAG в чате
+            |  /rag off              - выключить автоматический RAG
+            |  /rag debug            - вкл/выкл показ полного запроса с RAG-контекстом
             |
             |Реранкинг и фильтрация:
             |  /rag compare <q>      - сравнить результаты с реранкингом и без
@@ -87,8 +91,8 @@ class RagCommand(
             |Перед использованием:
             |  1. Запустите Ollama: ollama serve
             |  2. Скачайте модель: ollama pull mxbai-embed-large
-            |  3. Положите .txt файлы в папку rag_files/
-            |  4. Выполните /rag index
+            |  3. Положите .txt файлы в папку rag_files/ (или используйте index-project для файлов проекта)
+            |  4. Выполните /rag index или /rag index-project
         """.trimMargin())
         println()
     }
@@ -158,6 +162,44 @@ class RagCommand(
             is IndexingResult.Success -> {
                 println("\r" + " ".repeat(80) + "\r")  // Очистка строки прогресса
                 println("Индексация завершена!")
+                println("  Обработано файлов: ${result.filesProcessed}")
+                if (result.filesSkipped > 0) {
+                    println("  Пропущено (уже в индексе): ${result.filesSkipped}")
+                }
+                println("  Создано чанков: ${result.chunksCreated}")
+            }
+            is IndexingResult.NotReady -> {
+                when (result.reason) {
+                    is ReadinessResult.OllamaNotRunning -> {
+                        println("Ollama не запущена!")
+                        println("Запустите: ollama serve")
+                    }
+                    is ReadinessResult.ModelNotFound -> {
+                        println("Модель ${result.reason.model} не найдена!")
+                        println("Скачайте: ollama pull ${result.reason.model}")
+                    }
+                    else -> {}
+                }
+            }
+            is IndexingResult.Error -> {
+                println("Ошибка: ${result.message}")
+            }
+        }
+        println()
+    }
+
+    private suspend fun indexProjectFiles(forceReindex: Boolean) {
+        println(if (forceReindex) "Переиндексация файлов проекта..." else "Индексация файлов проекта...")
+        println()
+
+        when (val result = ragService!!.indexProjectFiles(forceReindex) { status ->
+            print("\r[${status.processedFiles}/${status.totalFiles}] ${status.currentFile ?: ""} " +
+                    "(чанков: ${status.processedChunks})")
+            System.out.flush()
+        }) {
+            is IndexingResult.Success -> {
+                println("\r" + " ".repeat(80) + "\r")  // Очистка строки прогресса
+                println("Индексация файлов проекта завершена!")
                 println("  Обработано файлов: ${result.filesProcessed}")
                 if (result.filesSkipped > 0) {
                     println("  Пропущено (уже в индексе): ${result.filesSkipped}")

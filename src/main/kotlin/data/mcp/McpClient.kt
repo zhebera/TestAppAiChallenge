@@ -230,11 +230,27 @@ object McpClientFactory {
     }
 
     /**
+     * Конфигурация для Git MCP сервера (официальный Python сервер через uvx).
+     * Предоставляет инструменты для работы с git репозиторием.
+     */
+    fun createGitServerConfig(): McpServerConfig {
+        return McpServerConfig(
+            command = "uvx",
+            args = listOf(
+                "mcp-server-git",
+                "--repository", System.getProperty("user.dir")
+            ),
+            env = mapOf()
+        )
+    }
+
+    /**
      * Получить все локальные MCP конфигурации (без Wikipedia по умолчанию -
      * используйте RAG вместо него или включите вручную через /mcp connect wikipedia)
      */
     fun getAllLocalServerConfigs(classpath: String): Map<String, McpServerConfig> {
         return mapOf(
+            "git" to createGitServerConfig(),
             // "wikipedia" - отключён по умолчанию (дублирует RAG)
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),

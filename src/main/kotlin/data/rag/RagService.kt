@@ -45,6 +45,7 @@ class RagService(
     private val vectorStore: VectorStore,
     private val chunkingService: ChunkingService = ChunkingService(),
     private val ragDirectory: File = File("rag_files"),
+    private val projectRoot: File? = null,
     private val rerankerService: RerankerService? = null
 ) {
     companion object {
@@ -148,6 +149,109 @@ class RagService(
         // Сохраняем метаданные
         vectorStore.saveMetadata(META_LAST_INDEX_TIME, System.currentTimeMillis().toString())
         vectorStore.saveMetadata(META_INDEXED_FILES_COUNT, filesProcessed.toString())
+        vectorStore.saveMetadata(META_TOTAL_CHUNKS, vectorStore.getChunkCount().toString())
+
+        return IndexingResult.Success(
+            filesProcessed = filesProcessed,
+            filesSkipped = skippedFiles,
+            chunksCreated = totalChunksProcessed
+        )
+    }
+
+    /**
+     * Индексация файлов проекта (.kt, .md, .gradle.kts).
+     * @param forceReindex - переиндексировать даже уже проиндексированные файлы
+     * @param onProgress - callback для отображения прогресса
+     */
+    suspend fun indexProjectFiles(
+        forceReindex: Boolean = false,
+        onProgress: (IndexingStatus) -> Unit = {}
+    ): IndexingResult {
+        // Проверяем готовность
+        val readiness = checkReadiness()
+        if (readiness !is ReadinessResult.Ready) {
+            return IndexingResult.NotReady(readiness)
+        }
+
+        if (projectRoot == null) {
+            return IndexingResult.Error("Project root не установлен")
+        }
+
+        if (!projectRoot.exists() || !projectRoot.isDirectory) {
+            return IndexingResult.Error("Директория ${projectRoot.absolutePath} не существует")
+        }
+
+        // Сканируем файлы проекта
+        val scanner = ProjectFileScanner(projectRoot)
+        val files = scanner.scanFiles()
+
+        if (files.isEmpty()) {
+            return IndexingResult.Error("Нет .kt/.md/.kts файлов в проекте")
+        }
+
+        // Если forceReindex, очищаем только файлы проекта (по префиксу)
+        if (forceReindex) {
+            files.forEach { file ->
+                val relativePath = scanner.getRelativePath(file)
+                vectorStore.deleteFileChunks(relativePath)
+            }
+        }
+
+        var totalChunksProcessed = 0
+        var filesProcessed = 0
+        var skippedFiles = 0
+
+        for ((index, file) in files.withIndex()) {
+            val relativePath = scanner.getRelativePath(file)
+
+            // Пропускаем уже проиндексированные файлы
+            if (!forceReindex && vectorStore.isFileIndexed(relativePath)) {
+                skippedFiles++
+                filesProcessed++
+                continue
+            }
+
+            onProgress(IndexingStatus(
+                totalFiles = files.size,
+                processedFiles = filesProcessed,
+                totalChunks = totalChunksProcessed,
+                processedChunks = totalChunksProcessed,
+                currentFile = relativePath
+            ))
+
+            try {
+                // Разбиваем файл на чанки (используем относительный путь)
+                val text = file.readText()
+                val chunks = chunkingService.chunkText(text, relativePath)
+                if (chunks.isEmpty()) continue
+
+                // Генерируем эмбеддинги батчами
+                val texts = chunks.map { it.content }
+                val embeddings = embeddingClient.embedBatch(texts) { processed, total ->
+                    onProgress(IndexingStatus(
+                        totalFiles = files.size,
+                        processedFiles = filesProcessed,
+                        totalChunks = totalChunksProcessed + total,
+                        processedChunks = totalChunksProcessed + processed,
+                        currentFile = relativePath
+                    ))
+                }
+
+                // Удаляем старые чанки этого файла (если есть) и сохраняем новые
+                vectorStore.deleteFileChunks(relativePath)
+                vectorStore.saveChunks(chunks, embeddings, EMBEDDING_MODEL)
+
+                totalChunksProcessed += chunks.size
+                filesProcessed++
+
+            } catch (e: Exception) {
+                return IndexingResult.Error("Ошибка при индексации $relativePath: ${e.message}")
+            }
+        }
+
+        // Сохраняем метаданные
+        vectorStore.saveMetadata(META_LAST_INDEX_TIME, System.currentTimeMillis().toString())
+        vectorStore.saveMetadata("project_indexed_files_count", filesProcessed.toString())
         vectorStore.saveMetadata(META_TOTAL_CHUNKS, vectorStore.getChunkCount().toString())
 
         return IndexingResult.Success(

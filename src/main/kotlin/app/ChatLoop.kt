@@ -25,7 +25,7 @@ class ChatLoop(
     private val multiMcpClient: MultiMcpClient? = null,
     private val classpath: String? = null
 ) {
-    private val commandRegistry = CommandRegistry(ragService)
+    private val commandRegistry = CommandRegistry(ragService, useCases.helpClient)
 
     suspend fun run() {
         printWelcome()
@@ -85,6 +85,7 @@ class ChatLoop(
         println("  /memory         - работа с памятью сообщений")
         println("  /mcp            - управление MCP серверами (wikipedia, summarizer, ...)")
         println("  /rag            - RAG: поиск по локальной базе знаний")
+        println("  /help [вопрос]  - интеллектуальный помощник по кодбазе")
         println()
     }
 
@@ -106,7 +107,7 @@ class ChatLoop(
         val state = context.state
 
         // Сжатие предыдущей истории перед отправкой нового сообщения
-        if (chatHistory.needsCompression() && useCases.compressHistory != null) {
+        if (chatHistory.needsCompression()) {
             try {
                 useCases.compressHistory.compressIfNeeded(chatHistory)
             } catch (_: Exception) {

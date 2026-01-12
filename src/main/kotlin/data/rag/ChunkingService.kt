@@ -37,6 +37,14 @@ class ChunkingService(
     }
 
     /**
+     * Загрузить и разбить файлы из списка.
+     * Поддерживает различные типы файлов (.kt, .md, .kts, .txt).
+     */
+    fun loadAndChunkFiles(files: List<File>): List<DocumentChunk> {
+        return files.flatMap { file -> chunkFile(file) }
+    }
+
+    /**
      * Разбить один файл на чанки.
      */
     fun chunkFile(file: File): List<DocumentChunk> {

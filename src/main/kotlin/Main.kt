@@ -25,10 +25,6 @@ fun main() = runBlocking {
             console, "ANTHROPIC_API_KEY", "Anthropic"
         ) ?: return@runBlocking
 
-        val openRouterKey = AppInitializer.resolveApiKey(
-            console, "OPENROUTER_API_KEY", "OpenRouter (для сжатия истории)"
-        )
-
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
 
@@ -43,7 +39,7 @@ fun main() = runBlocking {
 
         try {
             val useCases = AppInitializer.buildUseCases(
-                client, json, anthropicKey, openRouterKey,
+                client, json, anthropicKey, null,
                 multiMcpClient = multiMcpClient
             )
             ChatLoop(
@@ -86,6 +82,7 @@ private fun initializeRag(
         vectorStore = vectorStore,
         chunkingService = chunkingService,
         ragDirectory = ragDirectory,
+        projectRoot = File(System.getProperty("user.dir")),
         rerankerService = rerankerService
     )
 

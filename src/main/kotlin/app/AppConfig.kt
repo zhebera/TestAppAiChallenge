@@ -14,7 +14,7 @@ object AppConfig {
 
     const val DEFAULT_MAX_TOKENS = 1024
     const val MAX_STORED_MESSAGES = 10
-    const val COMPRESS_EVERY = 2
+    const val COMPRESS_EVERY = 10
 
     const val REQUEST_TIMEOUT_MS = 150_000L
     const val CONNECT_TIMEOUT_MS = 100_000L

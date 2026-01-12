@@ -1,9 +1,11 @@
 package org.example.app.commands
 
+import org.example.data.network.LlmClient
 import org.example.data.rag.RagService
 
 class CommandRegistry(
-    ragService: RagService? = null
+    ragService: RagService? = null,
+    helpClient: LlmClient? = null
 ) {
     private val commands: List<Command> = listOf(
         ExitCommand(),
@@ -14,7 +16,8 @@ class CommandRegistry(
         MemoryCommand(),
         ChangePromptCommand(),
         McpControlCommand(),  // Управление локальными MCP серверами
-        RagCommand(ragService)
+        RagCommand(ragService),
+        HelpCommand(ragService, helpClient)
     )
 
     suspend fun tryExecute(input: String, context: CommandContext): CommandResult {

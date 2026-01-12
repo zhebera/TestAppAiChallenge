@@ -7,7 +7,7 @@ import org.example.data.mcp.McpClient
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.mcp.ToolHandler
 import org.example.data.network.LlmClient
-import org.example.data.network.OpenRouterSummaryClient
+import org.example.data.network.HaikuSummaryClient
 import org.example.data.network.SummaryClient
 import org.example.data.network.ToolAwareClient
 import org.example.data.repository.ChatRepositoryImpl
@@ -17,7 +17,8 @@ import org.example.presentation.ConsoleInput
 
 data class UseCases(
     val sendMessage: SendMessageUseCase,
-    val compressHistory: CompressHistoryUseCase?
+    val compressHistory: CompressHistoryUseCase,
+    val helpClient: LlmClient?
 )
 
 object AppInitializer {
@@ -72,19 +73,26 @@ object AppInitializer {
 
         val chatRepository = ChatRepositoryImpl(clients = clients)
 
-        val summaryClient: SummaryClient? = openRouterKey?.let {
-            OpenRouterSummaryClient(
-                http = client,
-                json = json,
-                apiKey = it
-            )
-        }
+        val summaryClient: SummaryClient = HaikuSummaryClient(
+            http = client,
+            json = json,
+            apiKey = anthropicKey
+        )
 
-        val compressHistory = summaryClient?.let { CompressHistoryUseCase(it) }
+        val compressHistory = CompressHistoryUseCase(summaryClient)
+
+        // Создаём отдельный Haiku клиент для /help команды
+        val helpClient: LlmClient = AnthropicClient(
+            http = client,
+            json = json,
+            apiKey = anthropicKey,
+            model = AppConfig.CLAUDE_HAIKU_MODEL
+        )
 
         return UseCases(
             sendMessage = SendMessageUseCase(chatRepository),
-            compressHistory = compressHistory
+            compressHistory = compressHistory,
+            helpClient = helpClient
         )
     }
 }
