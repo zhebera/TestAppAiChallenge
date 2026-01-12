@@ -85,16 +85,25 @@ class HelpCommand(
         println("Поиск информации по запросу: $query")
         println()
 
-        // 1. Поиск по RAG (проект mode)
+        // 1. Поиск по RAG с фильтрацией только файлов проекта
         val ragContext = try {
-            ragService.search(query, topK = 5, minSimilarity = 0.25f)
+            ragService.search(query, topK = 10, minSimilarity = 0.25f)
         } catch (e: Exception) {
             println("Ошибка поиска в RAG: ${e.message}")
             println()
             return CommandResult.Continue
         }
 
-        if (ragContext.results.isEmpty()) {
+        // Фильтруем только файлы проекта (.kt, .md, .kts) - исключаем Wikipedia статьи
+        val projectResults = ragContext.results.filter { result ->
+            val sourceFile = result.chunk.sourceFile
+            sourceFile.endsWith(".kt") ||
+            sourceFile.endsWith(".md") ||
+            sourceFile.endsWith(".kts") ||
+            sourceFile.contains("/")  // Файлы проекта содержат пути
+        }.take(5)
+
+        if (projectResults.isEmpty()) {
             println("Не найдено релевантной информации в кодбазе проекта.")
             println("Попробуйте:")
             println("  1. Проиндексировать проект: /rag index-project")
@@ -129,7 +138,7 @@ class HelpCommand(
         val userMessage = buildString {
             append("Вопрос пользователя: $query\n\n")
             append("Релевантные фрагменты кода:\n\n")
-            ragContext.results.forEachIndexed { index, result ->
+            projectResults.forEachIndexed { index, result ->
                 append("=== Фрагмент ${index + 1}: ${result.chunk.sourceFile} ===\n")
                 append(result.chunk.content)
                 append("\n\n")
@@ -165,7 +174,7 @@ class HelpCommand(
 
         // 5. Показываем источники
         println("=== Источники ===")
-        ragContext.results.forEach { result ->
+        projectResults.forEach { result ->
             println("  - ${result.chunk.sourceFile}")
         }
         println()
