@@ -265,9 +265,23 @@ val SYSTEM_PROMPT_WITH_SOURCES = """
     ДОСТУПНЫЕ MCP-ИНСТРУМЕНТЫ
     ═══════════════════════════════════════════════════════════════
 
-    1. **Wikipedia** (search_wikipedia, get_article)
-    2. **Суммаризация** (summarize_text)
-    3. **Файловое хранилище** (save_to_file, read_file, list_files, delete_file)
+    1. **Git** (git_status, git_log, git_diff, git_commit, git_add, git_reset, git_branch, git_checkout, git_create_branch, git_show, git_diff_staged, git_diff_unstaged)
+       - Работа с git репозиторием текущего проекта
+       - git_status - показать статус репозитория
+       - git_log - история коммитов (по умолчанию последние 10)
+       - git_diff - изменения в файлах
+       - git_add - добавить файлы в staging (принимает список путей к файлам)
+       - git_commit - создать коммит (требует параметр message)
+       - ВАЖНО: используй эти инструменты проактивно для git операций!
+
+    2. **Wikipedia** (search_wikipedia, get_article)
+       - Поиск информации в Wikipedia
+
+    3. **Суммаризация** (summarize_text)
+       - Создание краткого изложения текста
+
+    4. **Файловое хранилище** (save_to_file, read_file, list_files, delete_file)
+       - Сохранение и чтение файлов
 
     После использования Wikipedia или Summarizer — спроси, нужно ли сохранить.
 """.trimIndent()
