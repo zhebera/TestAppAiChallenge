@@ -51,16 +51,16 @@ object AppInitializer {
         val toolHandler = ToolHandler(mcpClient, multiMcpClient)
 
         val mainClient: LlmClient = if (mcpClient != null || multiMcpClient != null) {
-            // Use tool-aware client when MCP is available
+            // Use Haiku for tool-aware client (better rate limits for MCP operations)
             ToolAwareClient(
                 http = client,
                 json = json,
                 apiKey = anthropicKey,
-                model = AppConfig.CLAUDE_SONNET_MODEL,
+                model = AppConfig.CLAUDE_HAIKU_MODEL,
                 toolHandler = toolHandler
             )
         } else {
-            // Fallback to regular client
+            // Fallback to Sonnet for regular client (no tools)
             AnthropicClient(
                 http = client,
                 json = json,

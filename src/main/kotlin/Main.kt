@@ -42,6 +42,15 @@ fun main() = runBlocking {
                 client, json, anthropicKey, null,
                 multiMcpClient = multiMcpClient
             )
+
+            // Показываем какая модель используется
+            if (multiMcpClient?.isConnected == true) {
+                println("Модель: ${AppConfig.CLAUDE_HAIKU_MODEL} (оптимизирована для MCP)")
+            } else {
+                println("Модель: ${AppConfig.CLAUDE_SONNET_MODEL}")
+            }
+            println()
+
             ChatLoop(
                 console = console,
                 useCases = useCases,

@@ -13,8 +13,8 @@ object AppConfig {
     const val CLAUDE_OPUS_MODEL = "claude-opus-4-1"
 
     const val DEFAULT_MAX_TOKENS = 1024
-    const val MAX_STORED_MESSAGES = 10
-    const val COMPRESS_EVERY = 10
+    const val MAX_STORED_MESSAGES = 6
+    const val COMPRESS_EVERY = 4
 
     const val REQUEST_TIMEOUT_MS = 150_000L
     const val CONNECT_TIMEOUT_MS = 100_000L

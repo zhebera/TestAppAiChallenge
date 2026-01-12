@@ -144,9 +144,9 @@ class ChatLoop(
                     )
                     val result = ragService.searchWithReranking(
                         query = text,
-                        topK = 3,
-                        initialTopK = 8,
-                        minSimilarity = 0.25f,
+                        topK = 2,
+                        initialTopK = 5,
+                        minSimilarity = 0.5f,
                         rerankerConfig = config
                     )
 
@@ -156,7 +156,7 @@ class ChatLoop(
                             appendLine("Найдено ${result.finalResults.size} релевантных фрагментов (с реранкингом):")
                             result.rerankedResults
                                 .filter { !it.wasFiltered }
-                                .take(3)
+                                .take(2)
                                 .forEachIndexed { i, reranked ->
                                     val newScore = "%.0f%%".format(reranked.rerankedScore * 100)
                                     val oldScore = "%.0f%%".format(reranked.originalScore * 100)
@@ -172,7 +172,7 @@ class ChatLoop(
                     Pair(result.formattedContext, info)
                 } else {
                     // Обычный поиск без реранкинга
-                    val ragContext = ragService.search(text, topK = 3, minSimilarity = 0.35f)
+                    val ragContext = ragService.search(text, topK = 2, minSimilarity = 0.6f)
                     val info = buildString {
                         if (ragContext.results.isNotEmpty()) {
                             appendLine("Найдено ${ragContext.results.size} релевантных фрагментов:")
