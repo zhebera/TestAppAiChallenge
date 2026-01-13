@@ -18,7 +18,8 @@ import org.example.presentation.ConsoleInput
 data class UseCases(
     val sendMessage: SendMessageUseCase,
     val compressHistory: CompressHistoryUseCase,
-    val helpClient: LlmClient?
+    val helpClient: LlmClient?,
+    val mainClient: LlmClient?  // Для PR Review и других продвинутых команд
 )
 
 object AppInitializer {
@@ -92,7 +93,8 @@ object AppInitializer {
         return UseCases(
             sendMessage = SendMessageUseCase(chatRepository),
             compressHistory = compressHistory,
-            helpClient = helpClient
+            helpClient = helpClient,
+            mainClient = mainClient
         )
     }
 }
