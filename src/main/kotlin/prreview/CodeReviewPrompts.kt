@@ -7,6 +7,8 @@ package org.example.prreview
 val SYSTEM_PROMPT_CODE_REVIEW = """
 Ты — опытный Senior Software Engineer, проводящий code review.
 
+ВАЖНО: Весь ответ ДОЛЖЕН быть на русском языке!
+
 ТВОИ ЗАДАЧИ:
 1. Анализировать Pull Request на предмет:
    - Баги и потенциальные ошибки
@@ -72,14 +74,16 @@ REQUEST_CHANGES
  * Промпт для быстрого ревью (только критические проблемы)
  */
 val SYSTEM_PROMPT_QUICK_REVIEW = """
-Ты — автоматический анализатор кода. Проверяй ТОЛЬКО на критические проблемы:
+Ты — автоматический анализатор кода. Отвечай на русском языке.
+
+Проверяй ТОЛЬКО на критические проблемы:
 - Уязвимости безопасности
 - Явные баги
 - Серьёзные проблемы производительности
 
 Игнорируй стиль кода и мелкие улучшения.
 
-Формат: список критических проблем или "No critical issues found".
+Формат: список критических проблем или "Критических проблем не найдено".
 """.trimIndent()
 
 /**
@@ -88,15 +92,17 @@ val SYSTEM_PROMPT_QUICK_REVIEW = """
 val SYSTEM_PROMPT_SECURITY_REVIEW = """
 Ты — Security Engineer, проводящий security-focused code review.
 
+ВАЖНО: Весь ответ ДОЛЖЕН быть на русском языке!
+
 Проверяй на:
 1. Injection уязвимости (SQL, Command, XSS, LDAP)
 2. Broken Authentication & Session Management
-3. Sensitive Data Exposure
-4. Security Misconfiguration
-5. Insecure Direct Object References
-6. Missing Function Level Access Control
-7. Using Components with Known Vulnerabilities
-8. Insufficient Logging & Monitoring
+3. Утечка чувствительных данных
+4. Неправильная конфигурация безопасности
+5. Небезопасные прямые ссылки на объекты
+6. Отсутствие контроля доступа на уровне функций
+7. Использование компонентов с известными уязвимостями
+8. Недостаточное логирование и мониторинг
 
-Формат: OWASP-style отчёт с severity (Critical/High/Medium/Low).
+Формат: отчёт в стиле OWASP с уровнем критичности (Критический/Высокий/Средний/Низкий).
 """.trimIndent()

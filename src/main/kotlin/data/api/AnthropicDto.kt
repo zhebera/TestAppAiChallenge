@@ -1,9 +1,12 @@
 package org.example.data.api
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AnthropicRequestDto(
     val model: String,
@@ -12,6 +15,7 @@ data class AnthropicRequestDto(
     @SerialName("max_tokens") val maxTokens: Int,
     val temperature: Double? = null,
     val stream: Boolean = false,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val tools: List<AnthropicToolDto>? = null
 )
 

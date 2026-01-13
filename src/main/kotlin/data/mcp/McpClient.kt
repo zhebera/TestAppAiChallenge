@@ -153,14 +153,17 @@ object McpClientFactory {
 
     /**
      * Create an MCP client for the GitHub server
-     * Requires GITHUB_PERSONAL_ACCESS_TOKEN environment variable or token parameter
+     * Requires GITHUB_TOKEN, APPLICATION_GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN environment variable or token parameter
      */
     fun createGitHubClient(
         token: String? = null,
         json: Json = createJson()
     ): McpClient {
-        val githubToken = token ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
-            ?: throw McpException("GitHub token not provided. Set GITHUB_PERSONAL_ACCESS_TOKEN env var or pass token parameter.")
+        val githubToken = token
+            ?: System.getenv("GITHUB_TOKEN")
+            ?: System.getenv("APPLICATION_GITHUB_TOKEN")
+            ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            ?: throw McpException("GitHub token not provided. Set GITHUB_TOKEN, APPLICATION_GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN env var.")
 
         val config = McpServerConfig(
             command = "npx",
@@ -257,6 +260,7 @@ object McpClientFactory {
             ),
             env = buildMap {
                 System.getenv("GITHUB_TOKEN")?.let { put("GITHUB_TOKEN", it) }
+                System.getenv("APPLICATION_GITHUB_TOKEN")?.let { put("APPLICATION_GITHUB_TOKEN", it) }
                 System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")?.let { put("GITHUB_PERSONAL_ACCESS_TOKEN", it) }
             }
         )

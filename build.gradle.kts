@@ -102,10 +102,13 @@ tasks.register<JavaExec>("runGitHubMcp") {
 }
 
 // Task to run PR Review from CI
+// Usage: ./gradlew runPrReview --args="owner repo prNumber [options]"
 tasks.register<JavaExec>("runPrReview") {
     group = "review"
-    description = "Run AI PR Review"
+    description = "Run AI PR Review. Usage: ./gradlew runPrReview --args='owner repo prNumber'"
     mainClass.set("org.example.prreview.PrReviewRunnerKt")
     classpath = sourceSets["main"].runtimeClasspath
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    standardOutput = System.out
+    errorOutput = System.err
 }
