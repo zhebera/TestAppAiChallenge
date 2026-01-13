@@ -8,6 +8,7 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
+import org.example.data.persistence.DatabaseConfig
 import org.example.data.rag.*
 import java.io.File
 
@@ -93,6 +94,11 @@ fun main(args: Array<String>) = runBlocking {
         apiKey = anthropicKey,
         model = "claude-sonnet-4-20250514"
     )
+
+    // Инициализируем базу данных для RAG (если включён)
+    if (config.useRag) {
+        DatabaseConfig.init()
+    }
 
     // Создаём RAG service (если включён)
     val ragService = if (config.useRag) {
