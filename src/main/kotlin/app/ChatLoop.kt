@@ -25,7 +25,7 @@ class ChatLoop(
     private val multiMcpClient: MultiMcpClient? = null,
     private val classpath: String? = null
 ) {
-    private val commandRegistry = CommandRegistry(ragService, useCases.helpClient)
+    private val commandRegistry = CommandRegistry(ragService, useCases.helpClient, useCases.mainClient)
 
     suspend fun run() {
         printWelcome()
@@ -86,6 +86,8 @@ class ChatLoop(
         println("  /mcp            - управление MCP серверами (wikipedia, summarizer, ...)")
         println("  /rag            - RAG: поиск по локальной базе знаний")
         println("  /help [вопрос]  - интеллектуальный помощник по кодбазе")
+        println("  /review-pr      - AI ревью Pull Request (с RAG контекстом)")
+        println("  /auto-pr        - Создать PR с автоматическим ревью (полный цикл)")
         println()
     }
 

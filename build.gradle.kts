@@ -88,3 +88,24 @@ tasks.register<JavaExec>("runAndroidEmulatorMcp") {
     standardInput = System.`in`
     environment("ANDROID_HOME", System.getenv("ANDROID_HOME") ?: "/Users/andrei/Library/Android/sdk")
 }
+
+// Task to run the GitHub Extended MCP Server (git_push, create_pull_request, etc.)
+tasks.register<JavaExec>("runGitHubMcp") {
+    group = "mcp"
+    description = "Run the GitHub Extended MCP Server (git_push, create_pr, etc.)"
+    mainClass.set("org.example.mcp.server.github.GitHubMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+    // Pass GitHub token from environment
+    environment("GITHUB_TOKEN", System.getenv("GITHUB_TOKEN") ?: "")
+    environment("GITHUB_PERSONAL_ACCESS_TOKEN", System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") ?: "")
+}
+
+// Task to run PR Review from CI
+tasks.register<JavaExec>("runPrReview") {
+    group = "review"
+    description = "Run AI PR Review"
+    mainClass.set("org.example.prreview.PrReviewRunnerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}

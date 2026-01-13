@@ -5,7 +5,8 @@ import org.example.data.rag.RagService
 
 class CommandRegistry(
     ragService: RagService? = null,
-    helpClient: LlmClient? = null
+    helpClient: LlmClient? = null,
+    mainLlmClient: LlmClient? = null
 ) {
     private val commands: List<Command> = listOf(
         ExitCommand(),
@@ -18,7 +19,10 @@ class CommandRegistry(
         McpControlCommand(),  // Управление локальными MCP серверами
         RagCommand(ragService),
         HelpCommand(ragService, helpClient)
-    )
+    ) + (if (mainLlmClient != null) listOf(
+        ReviewPrCommand(mainLlmClient, ragService),  // Ревью PR
+        AutoPrCommand(mainLlmClient, ragService)     // Автоматический PR с ревью
+    ) else emptyList())
 
     suspend fun tryExecute(input: String, context: CommandContext): CommandResult {
         for (command in commands) {

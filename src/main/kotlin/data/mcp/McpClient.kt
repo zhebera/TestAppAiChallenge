@@ -245,12 +245,31 @@ object McpClientFactory {
     }
 
     /**
+     * Конфигурация для GitHub Extended MCP сервера (локальный Kotlin сервер).
+     * Добавляет инструменты: git_push, git_push_new_branch, create_pull_request, get_repo_info
+     */
+    fun createGitHubExtendedConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.github.GitHubMcpServerKt"
+            ),
+            env = buildMap {
+                System.getenv("GITHUB_TOKEN")?.let { put("GITHUB_TOKEN", it) }
+                System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")?.let { put("GITHUB_PERSONAL_ACCESS_TOKEN", it) }
+            }
+        )
+    }
+
+    /**
      * Получить все локальные MCP конфигурации (без Wikipedia по умолчанию -
      * используйте RAG вместо него или включите вручную через /mcp connect wikipedia)
      */
     fun getAllLocalServerConfigs(classpath: String): Map<String, McpServerConfig> {
         return mapOf(
             "git" to createGitServerConfig(),
+            "github" to createGitHubExtendedConfig(classpath),
             // "wikipedia" - отключён по умолчанию (дублирует RAG)
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),
