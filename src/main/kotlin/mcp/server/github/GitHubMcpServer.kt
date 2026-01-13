@@ -423,24 +423,73 @@ class GitHubMcpServer {
 
         // Если номер PR не указан, пытаемся найти последний PR для текущей ветки
         val targetPr = prNumber ?: findLatestPrNumber(owner, repo)
-        ?: return "Не найден PR для ревью. Укажите номер PR или сначала создайте PR."
+            ?: return "Не найден PR для ревью. Укажите номер PR или сначала создайте PR."
 
-        return buildString {
-            appendLine("Для ревью PR #$targetPr используйте команду:")
-            appendLine()
-            appendLine("```")
-            appendLine("/review-pr $owner/$repo $targetPr")
-            appendLine("```")
-            appendLine()
-            appendLine("Или используйте полный цикл:")
-            appendLine("```")
-            appendLine("/auto-pr")
-            appendLine("```")
+        // Проверяем наличие необходимых токенов
+        val anthropicKey = System.getenv("ANTHROPIC_API_KEY")
+        if (anthropicKey.isNullOrBlank()) {
+            return "Ошибка: ANTHROPIC_API_KEY не установлен. Ревью невозможно."
+        }
+
+        val githubToken = System.getenv("GITHUB_TOKEN")
+            ?: System.getenv("APPLICATION_GITHUB_TOKEN")
+            ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        if (githubToken.isNullOrBlank()) {
+            return "Ошибка: GITHUB_TOKEN не установлен. Ревью невозможно."
+        }
+
+        // Запускаем ревью через gradle task
+        return try {
+            val result = StringBuilder()
+            result.appendLine("🔍 Запускаю AI ревью PR #$targetPr...")
+            result.appendLine()
+
+            // Запускаем PrReviewRunner через gradle
+            val reviewProcess = ProcessBuilder(
+                "./gradlew", "runPrReview",
+                "--args=$owner $repo $targetPr",
+                "--console=plain",
+                "-q"
+            )
+                .directory(workDir)
+                .redirectErrorStream(true)
+                .start()
+
+            val output = BufferedReader(InputStreamReader(reviewProcess.inputStream))
+                .readText()
+
+            val exitCode = reviewProcess.waitFor()
+
+            if (exitCode == 0) {
+                result.appendLine("✅ Ревью PR #$targetPr завершено!")
+                result.appendLine()
+                result.appendLine("Результат:")
+                result.appendLine(output.take(3000)) // Ограничиваем вывод
+                if (output.length > 3000) {
+                    result.appendLine("... (вывод обрезан)")
+                }
+            } else {
+                result.appendLine("⚠️ Ревью завершилось с кодом $exitCode")
+                result.appendLine()
+                result.appendLine(output.take(2000))
+            }
+
+            result.toString()
+        } catch (e: Exception) {
+            buildString {
+                appendLine("❌ Ошибка запуска ревью: ${e.message}")
+                appendLine()
+                appendLine("Попробуйте запустить вручную:")
+                appendLine("```")
+                appendLine("/review-pr $owner/$repo $targetPr")
+                appendLine("```")
+            }
         }
     }
 
     private fun findLatestPrNumber(owner: String, repo: String): Int? {
         val token = System.getenv("GITHUB_TOKEN")
+            ?: System.getenv("APPLICATION_GITHUB_TOKEN")
             ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
             ?: return null
 

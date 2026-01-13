@@ -151,6 +151,7 @@ class PrReviewService(
 
     /**
      * Опубликовать комментарий к PR
+     * Используем add_issue_comment т.к. PR в GitHub API это тоже issue
      */
     suspend fun postReviewComment(
         owner: String,
@@ -160,7 +161,7 @@ class PrReviewService(
     ): Boolean {
         return try {
             githubClient?.callTool(
-                "create_issue_comment",
+                "add_issue_comment",
                 mapOf(
                     "owner" to JsonPrimitive(owner),
                     "repo" to JsonPrimitive(repo),
@@ -277,16 +278,33 @@ class PrReviewService(
         return result?.content?.firstOrNull()?.text ?: ""
     }
 
+    /**
+     * Получает diff из патчей файлов PR.
+     * GitHub API возвращает patch для каждого файла в get_pull_request_files.
+     */
     private suspend fun getPrDiff(owner: String, repo: String, prNumber: Int): String {
         val result = githubClient?.callTool(
-            "get_pull_request_diff",
+            "get_pull_request_files",
             mapOf(
                 "owner" to JsonPrimitive(owner),
                 "repo" to JsonPrimitive(repo),
                 "pull_number" to JsonPrimitive(prNumber)
             )
         )
-        return result?.content?.firstOrNull()?.text ?: ""
+        val content = result?.content?.firstOrNull()?.text ?: return ""
+
+        // Собираем diff из патчей всех файлов
+        return try {
+            val files = json.parseToJsonElement(content).jsonArray
+            files.mapNotNull { file ->
+                val filename = file.jsonObject["filename"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val patch = file.jsonObject["patch"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                "--- a/$filename\n+++ b/$filename\n$patch"
+            }.joinToString("\n\n")
+        } catch (e: Exception) {
+            // Если не удалось распарсить, возвращаем как есть
+            content
+        }
     }
 
     private suspend fun getPrFiles(owner: String, repo: String, prNumber: Int): List<String> {
@@ -310,9 +328,13 @@ class PrReviewService(
         }
     }
 
+    /**
+     * Получает SHA последнего коммита из информации о PR.
+     * Используем head.sha из get_pull_request.
+     */
     private suspend fun getLatestCommitId(owner: String, repo: String, prNumber: Int): String? {
         val result = githubClient?.callTool(
-            "list_pull_request_commits",
+            "get_pull_request",
             mapOf(
                 "owner" to JsonPrimitive(owner),
                 "repo" to JsonPrimitive(repo),
@@ -322,10 +344,12 @@ class PrReviewService(
         val content = result?.content?.firstOrNull()?.text ?: return null
 
         return try {
-            val commits = json.parseToJsonElement(content).jsonArray
-            commits.lastOrNull()?.jsonObject?.get("sha")?.jsonPrimitive?.content
+            val prJson = json.parseToJsonElement(content).jsonObject
+            prJson["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
         } catch (e: Exception) {
-            null
+            // Альтернативный парсинг через regex
+            val shaMatch = Regex(""""sha"\s*:\s*"([a-f0-9]{40})"""").find(content)
+            shaMatch?.groupValues?.getOrNull(1)
         }
     }
 

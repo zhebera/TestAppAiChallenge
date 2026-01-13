@@ -3,6 +3,7 @@ package org.example.prreview
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -49,7 +50,9 @@ fun main(args: Array<String>) = runBlocking {
         return@runBlocking
     }
 
-    val githubToken = System.getenv("GITHUB_TOKEN") ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    val githubToken = System.getenv("GITHUB_TOKEN")
+        ?: System.getenv("APPLICATION_GITHUB_TOKEN")
+        ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
     if (githubToken.isNullOrBlank()) {
         println("ERROR: GITHUB_TOKEN не установлен")
         System.exit(1)
@@ -63,13 +66,18 @@ fun main(args: Array<String>) = runBlocking {
     println("Post to PR: ${config.postToPr}")
     println("=".repeat(60))
 
-    // Создаём HTTP клиент
+    // Создаём HTTP клиент с увеличенным таймаутом для больших PR
     val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
                 encodeDefaults = true
             })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 180_000  // 3 минуты для больших PR
+            connectTimeoutMillis = 30_000
+            socketTimeoutMillis = 180_000
         }
     }
 
