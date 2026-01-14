@@ -1,0 +1,158 @@
+# Функции и возможности - LLM Chat Application
+
+## Основные возможности
+
+### 1. Чат с Claude AI
+Полнофункциональный диалоговый интерфейс с моделями Claude от Anthropic.
+- Поддержка стриминга ответов в реальном времени
+- Автоматическое сохранение и сжатие истории
+- Настраиваемые системные промпты
+- Контроль температуры и количества токенов
+
+### 2. RAG (Retrieval-Augmented Generation)
+Система поиска по документам для контекстно-зависимых ответов.
+
+Возможности RAG:
+- Индексация текстовых файлов из папки rag_files/
+- Векторный поиск с использованием косинусного сходства
+- Три метода реранкинга для улучшения релевантности:
+  - CROSS_ENCODER - кросс-кодирование через эмбеддинги
+  - LLM_SCORING - оценка релевантности через LLM
+  - KEYWORD_HYBRID - гибридный метод (cosine + ключевые слова)
+- Настраиваемый порог релевантности
+- Автоматическое добавление контекста в запросы
+
+Технические детали:
+- Модель эмбеддингов: mxbai-embed-large (1024 dimensions)
+- Требует локально запущенный Ollama server
+- Поддержка чанкинга больших документов
+
+### 3. MCP (Model Context Protocol)
+Расширение возможностей AI с помощью внешних инструментов.
+
+Доступные MCP серверы:
+
+#### Wikipedia Server
+- search_wikipedia - поиск статей в Wikipedia
+- get_article - получение полного текста статьи
+
+#### FileStorage Server
+- save_to_file - сохранение текста в файл
+- read_file - чтение файла
+- list_files - список сохранённых файлов
+- delete_file - удаление файла
+
+#### GitHub Server
+- git_push - пушить текущую ветку на remote
+- git_push_new_branch - создать и запушить новую ветку
+- create_pull_request - создать Pull Request
+- get_repo_info - информация о репозитории
+
+#### Android Emulator Server
+- Управление Android эмулятором через ADB
+- Запуск и остановка эмуляторов
+- Выполнение команд на устройстве
+
+#### Summarizer Server
+- Суммаризация длинных текстов
+- Извлечение ключевых моментов
+
+#### CRM Server
+- get_user_by_id - информация о пользователе
+- get_user_by_email - поиск по email
+- get_user_tickets - тикеты пользователя
+- get_ticket_by_id - детали тикета
+- create_ticket - создание тикета
+- add_ticket_message - добавление сообщения
+- update_ticket_status - обновление статуса
+- search_tickets - поиск тикетов
+
+### 4. PR Review
+AI-powered code review для Pull Request на GitHub.
+- Автоматический анализ изменений
+- Интеграция с RAG для понимания контекста проекта
+- Генерация детального ревью с рекомендациями
+- Поддержка запуска из CI/CD
+
+### 5. Система памяти
+Автоматическое управление контекстом диалога.
+- Сохранение истории в SQLite базу данных
+- Автоматическое сжатие при достижении лимита
+- Использование Claude Haiku для эффективного summarize
+- Настраиваемые параметры хранения
+
+### 6. Множественные LLM провайдеры
+Архитектура поддерживает работу с разными LLM провайдерами.
+- AnthropicClient - основной клиент для Claude API
+- OpenRouterClient - альтернативный провайдер
+- ToolAwareClient - клиент с поддержкой MCP инструментов
+- HaikuSummaryClient - специализированный клиент для сжатия
+
+## Технический стек
+
+### Языки и фреймворки:
+- Kotlin 2.2 с корутинами
+- Ktor Client (CIO engine) для HTTP
+- kotlinx.serialization для JSON
+- Gradle Kotlin DSL
+
+### База данных:
+- SQLite через Exposed ORM
+- Автоматическая миграция схемы
+
+### Архитектура:
+- Clean Architecture (presentation → domain → data)
+- Interface-based design для расширяемости
+- Dependency Injection через AppInitializer
+- Корутины для асинхронности
+
+## Конфигурация
+
+### Переменные окружения:
+- ANTHROPIC_API_KEY - обязательный API ключ Anthropic
+- GITHUB_TOKEN - для работы с GitHub (опционально)
+- ANDROID_HOME - для Android эмулятора (опционально)
+
+### Параметры модели:
+- Timeout запроса: 150 секунд
+- Timeout подключения: 100 секунд
+- Max tokens по умолчанию: 1024
+- Temperature по умолчанию: 0.7
+
+### RAG параметры:
+- Порог релевантности: 0.4 (настраиваемый)
+- Top K результатов: 5
+- Размер чанка: настраиваемый
+
+## Интеграции
+
+### API интеграции:
+- Anthropic Claude API (основная)
+- OpenRouter API (альтернативная)
+- Wikipedia API (через MCP)
+- GitHub API (через MCP и CLI)
+- Ollama API (для эмбеддингов)
+
+### Поддержка протоколов:
+- MCP Protocol 2024-11-05
+- JSON-RPC 2.0
+- Server-Sent Events (SSE)
+- REST API
+
+## Расширяемость
+
+### Добавление нового MCP сервера:
+1. Создайте класс в mcp/server/your_server/
+2. Реализуйте методы handleInitialize, handleToolsList, handleToolCall
+3. Добавьте конфигурацию в McpClientFactory
+4. Добавьте Gradle task для запуска
+
+### Добавление нового LLM провайдера:
+1. Реализуйте интерфейс LlmClient
+2. Добавьте клиент в ChatRepository
+3. Настройте конфигурацию в AppConfig
+
+### Добавление новых команд:
+1. Создайте класс в app/commands/
+2. Реализуйте интерфейс Command
+3. Зарегистрируйте в CommandProcessor

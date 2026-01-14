@@ -17,10 +17,19 @@ dependencies {
 
     testImplementation(kotlin("test"))
 
+    // Ktor Client
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+
+    // Ktor Server (for Support API)
+    implementation("io.ktor:ktor-server-core:$ktorVersion")
+    implementation("io.ktor:ktor-server-cio:$ktorVersion")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-server-cors:$ktorVersion")
+    implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
+
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     //toon
     implementation("dev.toonformat:jtoon:1.0.7")
@@ -101,6 +110,15 @@ tasks.register<JavaExec>("runGitHubMcp") {
     environment("GITHUB_PERSONAL_ACCESS_TOKEN", System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") ?: "")
 }
 
+// Task to run the CRM MCP Server (users and tickets management)
+tasks.register<JavaExec>("runCrmMcp") {
+    group = "mcp"
+    description = "Run the CRM MCP Server (users, tickets)"
+    mainClass.set("org.example.mcp.server.crm.CrmMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+}
+
 // Task to run PR Review from CI
 // Usage: ./gradlew runPrReview --args="owner repo prNumber [options]"
 tasks.register<JavaExec>("runPrReview") {
@@ -111,4 +129,28 @@ tasks.register<JavaExec>("runPrReview") {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     standardOutput = System.out
     errorOutput = System.err
+}
+
+// Task to run the Support API Server
+// Usage: ./gradlew runSupportApi
+tasks.register<JavaExec>("runSupportApi") {
+    group = "support"
+    description = "Run the Support API Server (REST API for customer support)"
+    mainClass.set("org.example.support.SupportApplicationKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Default port 8080, can be overridden with SUPPORT_API_PORT env var
+    environment("SUPPORT_API_PORT", System.getenv("SUPPORT_API_PORT") ?: "8080")
+}
+
+// Task to run the interactive Support Chat console
+// Usage: ./gradlew runSupportChat -q
+tasks.register<JavaExec>("runSupportChat") {
+    group = "support"
+    description = "Run interactive Support Chat (console app with RAG + CRM)"
+    mainClass.set("org.example.support.SupportConsoleAppKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+    standardOutput = System.out
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }

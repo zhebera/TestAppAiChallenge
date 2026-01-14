@@ -267,6 +267,20 @@ object McpClientFactory {
     }
 
     /**
+     * Конфигурация для CRM MCP сервера (пользователи и тикеты).
+     * Инструменты: get_user_by_id, get_user_tickets, get_ticket_by_id, create_ticket, search_tickets и др.
+     */
+    fun createCrmConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.crm.CrmMcpServerKt"
+            )
+        )
+    }
+
+    /**
      * Получить все локальные MCP конфигурации (без Wikipedia по умолчанию -
      * используйте RAG вместо него или включите вручную через /mcp connect wikipedia)
      */
@@ -277,7 +291,8 @@ object McpClientFactory {
             // "wikipedia" - отключён по умолчанию (дублирует RAG)
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),
-            "android" to createAndroidEmulatorConfig(classpath)
+            "android" to createAndroidEmulatorConfig(classpath),
+            "crm" to createCrmConfig(classpath)
         )
     }
 
@@ -289,7 +304,8 @@ object McpClientFactory {
             "wikipedia" to createWikipediaConfig(classpath),
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),
-            "android" to createAndroidEmulatorConfig(classpath)
+            "android" to createAndroidEmulatorConfig(classpath),
+            "crm" to createCrmConfig(classpath)
         )
     }
 }

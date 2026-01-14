@@ -1,0 +1,157 @@
+{
+  "tickets": [
+    {
+      "id": "ticket_001",
+      "user_id": "user_001",
+      "subject": "Не работает авторизация после обновления",
+      "status": "open",
+      "priority": "high",
+      "category": "auth",
+      "created_at": "2025-01-10T14:00:00Z",
+      "updated_at": "2025-01-10T15:30:00Z",
+      "messages": [
+        {
+          "id": "msg_001",
+          "role": "user",
+          "content": "После обновления приложения не могу войти в систему. При попытке авторизации выдает ошибку 401 Unauthorized. API ключ точно правильный, проверял на console.anthropic.com. Раньше все работало.",
+          "timestamp": "2025-01-10T14:00:00Z"
+        },
+        {
+          "id": "msg_002",
+          "role": "support",
+          "content": "Здравствуйте, Иван! Спасибо за обращение. Попробуйте, пожалуйста, следующее:\n1. Очистите кэш приложения\n2. Проверьте, что переменная окружения ANTHROPIC_API_KEY установлена корректно\n3. Перезапустите терминал после установки ключа\n\nЕсли не поможет, пришлите, пожалуйста, логи запуска.",
+          "timestamp": "2025-01-10T14:15:00Z"
+        },
+        {
+          "id": "msg_003",
+          "role": "user",
+          "content": "Попробовал все шаги, не помогло. Переменная установлена: echo $ANTHROPIC_API_KEY показывает ключ. Логи прилагаю:\n\nError: API request failed with status 401\nResponse: {\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+          "timestamp": "2025-01-10T15:30:00Z"
+        }
+      ],
+      "tags": ["auth", "401_error", "api_key", "urgent"],
+      "assigned_to": null,
+      "resolution": null
+    },
+    {
+      "id": "ticket_002",
+      "user_id": "user_001",
+      "subject": "RAG не находит документы",
+      "status": "resolved",
+      "priority": "medium",
+      "category": "technical",
+      "created_at": "2024-12-20T10:00:00Z",
+      "updated_at": "2024-12-21T11:00:00Z",
+      "messages": [
+        {
+          "id": "msg_010",
+          "role": "user",
+          "content": "Команда /rag search не находит ничего, хотя файлы в папке rag_files есть.",
+          "timestamp": "2024-12-20T10:00:00Z"
+        },
+        {
+          "id": "msg_011",
+          "role": "support",
+          "content": "Проверьте, запущен ли Ollama сервер (ollama serve) и установлена ли модель mxbai-embed-large. Выполните:\n1. ollama serve (в отдельном терминале)\n2. ollama pull mxbai-embed-large\n3. /rag index (для индексации файлов)",
+          "timestamp": "2024-12-20T10:30:00Z"
+        },
+        {
+          "id": "msg_012",
+          "role": "user",
+          "content": "Спасибо! Ollama не был запущен. После запуска и индексации всё заработало!",
+          "timestamp": "2024-12-21T11:00:00Z"
+        }
+      ],
+      "tags": ["rag", "ollama", "indexing"],
+      "assigned_to": null,
+      "resolution": "Пользователь не запустил Ollama server. После запуска ollama serve и повторной индексации проблема решена."
+    },
+    {
+      "id": "ticket_003",
+      "user_id": "user_002",
+      "subject": "MCP серверы не подключаются",
+      "status": "in_progress",
+      "priority": "medium",
+      "category": "technical",
+      "created_at": "2025-01-08T16:00:00Z",
+      "updated_at": "2025-01-09T09:00:00Z",
+      "messages": [
+        {
+          "id": "msg_020",
+          "role": "user",
+          "content": "При запуске команды /mcp connect filestorage получаю ошибку: 'Failed to start MCP server'. Что может быть не так?",
+          "timestamp": "2025-01-08T16:00:00Z"
+        },
+        {
+          "id": "msg_021",
+          "role": "support",
+          "content": "Здравствуйте! Эта ошибка обычно связана с проблемами Java. Проверьте:\n1. Установлена ли Java: java -version\n2. Версия Java должна быть 17 или выше\n3. Попробуйте перезапустить приложение",
+          "timestamp": "2025-01-08T16:30:00Z"
+        },
+        {
+          "id": "msg_022",
+          "role": "user",
+          "content": "Java установлена, версия 21. Перезапуск не помог.",
+          "timestamp": "2025-01-09T09:00:00Z"
+        }
+      ],
+      "tags": ["mcp", "connection", "java"],
+      "assigned_to": "support_agent_1",
+      "resolution": null
+    },
+    {
+      "id": "ticket_004",
+      "user_id": "user_003",
+      "subject": "Как добавить свой системный промпт?",
+      "status": "closed",
+      "priority": "low",
+      "category": "feature_request",
+      "created_at": "2024-11-15T12:00:00Z",
+      "updated_at": "2024-11-15T14:00:00Z",
+      "messages": [
+        {
+          "id": "msg_030",
+          "role": "user",
+          "content": "Хочу использовать свой кастомный системный промпт. Как это сделать?",
+          "timestamp": "2024-11-15T12:00:00Z"
+        },
+        {
+          "id": "msg_031",
+          "role": "support",
+          "content": "Для изменения системного промпта используйте команду /changePrompt. Она покажет список доступных промптов и позволит выбрать нужный.\n\nЕсли хотите добавить свой промпт, отредактируйте файл utils/SystemPrompts.kt и добавьте новый промпт в список AVAILABLE_PROMPTS.",
+          "timestamp": "2024-11-15T13:00:00Z"
+        },
+        {
+          "id": "msg_032",
+          "role": "user",
+          "content": "Отлично, спасибо! Разобрался.",
+          "timestamp": "2024-11-15T14:00:00Z"
+        }
+      ],
+      "tags": ["prompts", "customization", "howto"],
+      "assigned_to": null,
+      "resolution": "Объяснено использование /changePrompt и редактирование SystemPrompts.kt"
+    },
+    {
+      "id": "ticket_005",
+      "user_id": "user_002",
+      "subject": "Медленные ответы от модели",
+      "status": "open",
+      "priority": "low",
+      "category": "performance",
+      "created_at": "2025-01-12T11:00:00Z",
+      "updated_at": "2025-01-12T11:00:00Z",
+      "messages": [
+        {
+          "id": "msg_040",
+          "role": "user",
+          "content": "Ответы стали приходить очень медленно, иногда ждать приходится минуту и больше. Раньше было быстрее. Интернет хороший, проверяла.",
+          "timestamp": "2025-01-12T11:00:00Z"
+        }
+      ],
+      "tags": ["performance", "slow", "latency"],
+      "assigned_to": null,
+      "resolution": null
+    }
+  ]
+}
