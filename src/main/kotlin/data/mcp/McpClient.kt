@@ -281,6 +281,20 @@ object McpClientFactory {
     }
 
     /**
+     * Конфигурация для Tasks MCP сервера (управление задачами проекта).
+     * Инструменты: get_project_status, list_tasks, create_task, update_task_status, get_recommendations и др.
+     */
+    fun createTasksConfig(classpath: String): McpServerConfig {
+        return McpServerConfig(
+            command = "java",
+            args = listOf(
+                "-cp", classpath,
+                "org.example.mcp.server.tasks.TasksMcpServerKt"
+            )
+        )
+    }
+
+    /**
      * Получить все локальные MCP конфигурации (без Wikipedia по умолчанию -
      * используйте RAG вместо него или включите вручную через /mcp connect wikipedia)
      */
@@ -292,7 +306,8 @@ object McpClientFactory {
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),
             "android" to createAndroidEmulatorConfig(classpath),
-            "crm" to createCrmConfig(classpath)
+            "crm" to createCrmConfig(classpath),
+            "tasks" to createTasksConfig(classpath)
         )
     }
 
@@ -305,7 +320,8 @@ object McpClientFactory {
             "summarizer" to createSummarizerConfig(classpath),
             "filestorage" to createFileStorageConfig(classpath),
             "android" to createAndroidEmulatorConfig(classpath),
-            "crm" to createCrmConfig(classpath)
+            "crm" to createCrmConfig(classpath),
+            "tasks" to createTasksConfig(classpath)
         )
     }
 }

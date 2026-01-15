@@ -154,3 +154,35 @@ tasks.register<JavaExec>("runSupportChat") {
     standardOutput = System.out
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
+
+// Task to run the Tasks MCP Server (project task management)
+tasks.register<JavaExec>("runTasksMcp") {
+    group = "mcp"
+    description = "Run the Tasks MCP Server (project task management)"
+    mainClass.set("org.example.mcp.server.tasks.TasksMcpServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+}
+
+// Task to run the Team Assistant console app
+// Usage: ./gradlew runTeamAssistant -q
+tasks.register<JavaExec>("runTeamAssistant") {
+    group = "team"
+    description = "Run the Team Assistant (RAG + Tasks MCP + GitHub MCP)"
+    mainClass.set("org.example.team.TeamAssistantAppKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+    standardOutput = System.out
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+// Task to run Team Assistant tests
+// Usage: ./gradlew runTeamAssistantTest -q
+tasks.register<JavaExec>("runTeamAssistantTest") {
+    group = "team"
+    description = "Run Team Assistant component tests"
+    mainClass.set("org.example.team.TeamAssistantTestKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardOutput = System.out
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}

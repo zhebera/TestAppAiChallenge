@@ -45,6 +45,12 @@ object DatabaseConfig {
                 // RAG таблицы
                 ChunksTable,
                 IndexMetadataTable,
+                // Tasks таблицы (Team Assistant)
+                TeamMembersTable,
+                SprintsTable,
+                TasksTable,
+                TaskCommentsTable,
+                TaskBlockersTable,
             )
         }
 
