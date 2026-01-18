@@ -115,8 +115,9 @@ class FullCycleCommand(
     private fun isNaturalLanguageFullCycle(input: String): Boolean {
         val patterns = listOf(
             // Русские паттерны
-            Regex("""(сделай|реализуй|добавь|исправь|создай).*(и|затем).*(залей|смержи|запушь|закоммить)""", RegexOption.IGNORE_CASE),
-            Regex("""(сделай|реализуй|добавь).*(в\s*main|в\s*мастер)""", RegexOption.IGNORE_CASE),
+            Regex("""(сделай|реализуй|добавь|исправь|создай|удали).*(и|затем).*(залей|смержи|запушь|закоммить)""", RegexOption.IGNORE_CASE),
+            Regex("""(сделай|реализуй|добавь|удали).*(в\s*main|в\s*мастер)""", RegexOption.IGNORE_CASE),
+            Regex("""(удали|добавь|создай|исправь).*через\s*PR""", RegexOption.IGNORE_CASE),
             Regex("""(полный\s*цикл|фул\s*сайкл)""", RegexOption.IGNORE_CASE),
             // Английские паттерны
             Regex("""(implement|add|fix|create).*(and|then).*(merge|push|commit)""", RegexOption.IGNORE_CASE),
