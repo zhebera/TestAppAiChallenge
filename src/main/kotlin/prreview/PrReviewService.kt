@@ -238,29 +238,11 @@ class PrReviewService(
         }
 
         return try {
-            if (inlineComments.isNotEmpty() && commitId != null) {
-                // Создаём review с inline комментариями
-                githubClient?.callTool(
-                    "create_pull_request_review",
-                    mapOf(
-                        "owner" to JsonPrimitive(owner),
-                        "repo" to JsonPrimitive(repo),
-                        "pull_number" to JsonPrimitive(prNumber),
-                        "commit_id" to JsonPrimitive(commitId),
-                        "body" to JsonPrimitive(reviewBody),
-                        "event" to JsonPrimitive(result.overallScore),
-                        "comments" to JsonArray(inlineComments)
-                    )
-                )
-            } else {
-                // Только общий комментарий
-                postReviewComment(owner, repo, prNumber, reviewBody)
-            }
-            true
+            // Публикуем ревью как общий комментарий (inline комментарии часто падают из-за неправильных путей)
+            postReviewComment(owner, repo, prNumber, reviewBody)
         } catch (e: Exception) {
             println("Ошибка публикации ревью: ${e.message}")
-            // Fallback - публикуем как обычный комментарий
-            postReviewComment(owner, repo, prNumber, reviewBody)
+            false
         }
     }
 

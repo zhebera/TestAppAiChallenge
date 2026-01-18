@@ -103,7 +103,7 @@ class McpClient(
         )
 
         transport.send(request)
-        val response = transport.receive(request.id, timeoutMs = 60000) // Longer timeout for tool execution
+        val response = transport.receive(request.id, timeoutMs = 15000) // 15s timeout for tool execution
 
         if (response.error != null) {
             throw McpException("tools/call failed: ${response.error.message}")
