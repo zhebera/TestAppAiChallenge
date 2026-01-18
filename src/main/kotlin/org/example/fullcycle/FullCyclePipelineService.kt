@@ -807,12 +807,20 @@ class FullCyclePipelineService(
                     return Pair(prNumber, prUrl ?: "https://github.com/${repoInfo.owner}/${repoInfo.repo}/pull/$prNumber")
                 }
             }
+
+            // MCP вызов прошёл, но не удалось распарсить ответ
+            // Проверяем, может PR всё же был создан
+            val createdPr = getExistingPrForBranch(repoInfo, branchName)
+            if (createdPr != null) {
+                progress("   ✓ PR создан через MCP: #${createdPr.first}")
+                return createdPr
+            }
         } catch (e: Exception) {
             progress("   ⚠ MCP не смог создать PR: ${e.message}")
-            progress("   Пробую через gh CLI...")
         }
 
         // Fallback: создаём PR через gh CLI
+        progress("   Пробую через gh CLI...")
         return createPullRequestViaGhCli(repoInfo, branchName, title, body)
     }
 
