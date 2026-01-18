@@ -328,6 +328,24 @@ class FullCyclePipelineService(
         onStateChange?.invoke(state)
     }
 
+    /**
+     * Получает структуру проекта (список kotlin файлов) для контекста планирования
+     */
+    private fun getProjectStructure(): String {
+        val srcDir = File(projectRoot, "src/main/kotlin")
+        if (!srcDir.exists()) return "src/main/kotlin не найден"
+
+        val files = mutableListOf<String>()
+        srcDir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .forEach { file ->
+                val relativePath = file.relativeTo(projectRoot).path
+                files.add(relativePath)
+            }
+
+        return files.sorted().joinToString("\n")
+    }
+
     private suspend fun buildRagContext(taskDescription: String): String {
         if (ragService == null) return ""
 
@@ -343,6 +361,9 @@ class FullCyclePipelineService(
     }
 
     private suspend fun generatePlan(taskDescription: String, ragContext: String): ExecutionPlan {
+        // Получаем структуру проекта для контекста
+        val projectStructure = getProjectStructure()
+
         val prompt = buildString {
             appendLine("Проанализируй задачу и создай план изменений.")
             appendLine()
@@ -350,8 +371,15 @@ class FullCyclePipelineService(
             appendLine(taskDescription)
             appendLine()
 
+            appendLine("## Структура проекта (существующие файлы)")
+            appendLine("ВАЖНО: Если файл уже существует — используй MODIFY, не CREATE!")
+            appendLine("```")
+            appendLine(projectStructure)
+            appendLine("```")
+            appendLine()
+
             if (ragContext.isNotBlank()) {
-                appendLine("## Контекст проекта")
+                appendLine("## Контекст проекта (содержимое релевантных файлов)")
                 appendLine(ragContext)
                 appendLine()
             }
