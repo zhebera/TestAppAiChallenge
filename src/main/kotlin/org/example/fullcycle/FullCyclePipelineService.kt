@@ -140,7 +140,12 @@ class FullCyclePipelineService(
             progress("   ✓ PR #$prNumber создан: $prUrl")
 
             // === ЭТАП 7: Self-Review цикл ===
-            var approved = false
+            // Пропускаем self-review если все операции - только удаления (нечего ревьюить)
+            val hasNonDeleteChanges = plan.plannedChanges.any { it.changeType != ChangeType.DELETE }
+            var approved = !hasNonDeleteChanges // Если только DELETE - сразу approved
+            if (!hasNonDeleteChanges) {
+                progress("\n✓ Self-review пропущен (только удаление файлов)")
+            }
             while (!approved && reviewIterations < config.maxReviewIterations) {
                 reviewIterations++
                 progress("\n🔎 Self-review итерация $reviewIterations...")
@@ -856,8 +861,26 @@ class FullCyclePipelineService(
             maxTokens = 4096
         )
 
-        val response = llmClient.send(request)
-        return response.text
+        // Retry с экспоненциальной задержкой для rate limit
+        var lastError: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                // Задержка перед повторной попыткой
+                if (attempt > 0) {
+                    val delayMs = (1000L * (attempt + 1)) // 2s, 3s
+                    progress("   ⏳ Rate limit, ждём ${delayMs/1000}s...")
+                    delay(delayMs)
+                }
+                val response = llmClient.send(request)
+                return response.text
+            } catch (e: Exception) {
+                lastError = e
+                if (!e.message.orEmpty().contains("rate_limit", ignoreCase = true)) {
+                    throw e // Не rate limit - пробрасываем сразу
+                }
+            }
+        }
+        throw lastError ?: PipelineException("Не удалось вызвать LLM после 3 попыток")
     }
 
     private suspend fun runGit(vararg command: String): String {
