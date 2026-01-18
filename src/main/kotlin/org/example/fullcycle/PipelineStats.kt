@@ -42,20 +42,32 @@ data class PipelineStats(
 
     fun getUniqueStatesCount(): Int = statesVisited.distinct().size
 
+    fun formatDuration(duration: Duration): String {
+        val hours = duration.toHours()
+        val minutes = duration.toMinutesPart()
+        val seconds = duration.toSecondsPart()
+
+        return buildString {
+            if (hours > 0) append("${hours}h ")
+            if (minutes > 0) append("${minutes}m ")
+            if (seconds > 0 || isEmpty()) append("${seconds}s")
+        }.trim()
+    }
+
     fun getSummary(): String {
         return """
             Pipeline Execution Statistics
             ==============================
             Start Time: $startTime
             End Time: $endTime
-            Total Duration: ${getDurationInMinutes().roundToInt()} minutes
+            Total Duration: ${formatDuration(totalDuration)}
             States Visited: ${getUniqueStatesCount()} unique states
             State Transitions: $stateTransitions
             Review Iterations: $reviewIterations
             CI Retries: $ciRetries
             Final State: $finalState
             Successful Merge: $successfulMerge
-            Average Iteration Time: ${getAverageIterationTime().seconds} seconds
+            Average Iteration Time: ${formatDuration(getAverageIterationTime())}
             State Transition Rate: ${getStateTransitionRate().roundToInt()} transitions/minute
         """.trimIndent()
     }
