@@ -10,6 +10,7 @@ sealed class PipelineState {
     data class PlanReady(val plan: ExecutionPlan) : PipelineState()
     data object AwaitingConfirmation : PipelineState()
     data object MakingChanges : PipelineState()
+    data object Validating : PipelineState()  // Локальная валидация (компиляция/тесты)
     data class CreatingBranch(val branchName: String) : PipelineState()
     data class Committing(val message: String) : PipelineState()
     data class Pushing(val branchName: String) : PipelineState()
@@ -148,6 +149,9 @@ data class PipelineConfig(
     val maxCIRetries: Int = 5,
     val autoMerge: Boolean = true,
     val requireCIPass: Boolean = true,
+    val runLocalTests: Boolean = false,  // Запускать локальные тесты перед коммитом (отключено по умолчанию для скорости)
+    val maxCompilationAttempts: Int = 3, // Максимум попыток исправить компиляцию
+    val maxTestAttempts: Int = 3,        // Максимум попыток исправить тесты
     val protectedPatterns: List<String> = listOf(
         ".env",
         ".env.*",
@@ -156,7 +160,11 @@ data class PipelineConfig(
         "**/*.pem",
         "**/*.key"
     )
-)
+) {
+    companion object {
+        const val VERSION = "2.0.0"
+    }
+}
 
 /**
  * Защищённые файлы, которые нельзя редактировать
