@@ -165,13 +165,18 @@ object McpClientFactory {
             ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
             ?: throw McpException("GitHub token not provided. Set GITHUB_TOKEN, APPLICATION_GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN env var.")
 
+        // Используем локальный Kotlin сервер вместо npm (быстрее и надёжнее)
+        val classpath = System.getProperty("java.class.path")
         val config = McpServerConfig(
-            command = "npx",
+            command = "java",
             args = listOf(
-                "-y",
-                "@modelcontextprotocol/server-github"
+                "-cp", classpath,
+                "org.example.mcp.server.github.GitHubMcpServerKt"
             ),
-            env = mapOf("GITHUB_PERSONAL_ACCESS_TOKEN" to githubToken)
+            env = mapOf(
+                "GITHUB_TOKEN" to githubToken,
+                "GITHUB_PERSONAL_ACCESS_TOKEN" to githubToken
+            )
         )
         val transport = McpStdioTransport(config, json)
         return McpClient(transport, json)
