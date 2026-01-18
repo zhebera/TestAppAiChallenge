@@ -110,6 +110,36 @@ class FullCyclePipelineService(
                 )
             }
 
+            // === ЭТАП 4.5: Локальная валидация перед коммитом ===
+            progress("\n🔍 Проверяю изменения локально...")
+            changeState(PipelineState.Validating)
+
+            // Проверяем компиляцию с автоисправлением
+            val compileOk = validateAndFixCompilation(taskDescription, ragContext, config.maxCompilationAttempts)
+            if (!compileOk) {
+                progress("\n❌ Не удалось исправить ошибки компиляции")
+                progress("   Откатываю изменения...")
+                // Откатываем изменения
+                runGit("git", "checkout", "--", ".")
+                return PipelineReport(
+                    success = false,
+                    summary = "Ошибки компиляции не удалось исправить автоматически",
+                    errors = listOf("Компиляция не прошла после ${config.maxCompilationAttempts} попыток автоисправления")
+                )
+            }
+            progress("   ✓ Компиляция успешна")
+
+            // Опционально: проверяем тесты (можно отключить в config)
+            if (config.runLocalTests) {
+                val testsOk = validateAndFixTests(taskDescription, ragContext, config.maxTestAttempts)
+                if (!testsOk) {
+                    progress("   ⚠ Некоторые тесты не прошли, но продолжаем (CI проверит)")
+                    errors.add("Локальные тесты не прошли")
+                } else {
+                    progress("   ✓ Тесты прошли")
+                }
+            }
+
             // === ЭТАП 5: Git операции ===
             val branchName = "feature/ai-${generateBranchSuffix(taskDescription)}"
             progress("\n🌿 Создаю ветку $branchName...")
@@ -150,13 +180,18 @@ class FullCyclePipelineService(
             val (prNumber, prUrl) = createPullRequest(repoInfo, branchName, commitMessage, plan)
             progress("   ✓ PR #$prNumber создан: $prUrl")
 
-            // === ЭТАП 7: Self-Review цикл ===
+            // === ЭТАП 7: Self-Review цикл с умным определением застревания ===
             // Пропускаем self-review если все операции - только удаления (нечего ревьюить)
             val hasNonDeleteChanges = plan.plannedChanges.any { it.changeType != ChangeType.DELETE }
             var approved = !hasNonDeleteChanges // Если только DELETE - сразу approved
             if (!hasNonDeleteChanges) {
                 progress("\n✓ Self-review пропущен (только удаление файлов)")
             }
+
+            // Для определения застревания храним историю замечаний
+            val previousCommentSignatures = mutableListOf<Set<String>>()
+            var consecutiveMinorOnlyIterations = 0
+
             while (!approved && reviewIterations < config.maxReviewIterations) {
                 reviewIterations++
                 progress("\n🔎 Self-review итерация $reviewIterations...")
@@ -168,32 +203,98 @@ class FullCyclePipelineService(
                     progress("   ✓ Код одобрен!")
                     approved = true
                 } else {
-                    progress("   Найдено замечаний: ${reviewResult.comments.size}")
+                    val criticalCount = reviewResult.comments.count {
+                        it.severity == IssueSeverity.CRITICAL || it.severity == IssueSeverity.WARNING
+                    }
+                    val minorCount = reviewResult.comments.count {
+                        it.severity == IssueSeverity.SUGGESTION || it.severity == IssueSeverity.NITPICK
+                    }
+
+                    progress("   Найдено замечаний: ${reviewResult.comments.size} (критичных: $criticalCount, minor: $minorCount)")
+
+                    // Создаём "сигнатуру" текущих замечаний для детекции застревания
+                    val currentSignature = reviewResult.comments.map { "${it.file}:${it.line}:${it.message.take(50)}" }.toSet()
+
+                    // Проверяем застревание: те же самые замечания повторяются
+                    val isStuck = previousCommentSignatures.any { prev ->
+                        // Если 80%+ замечаний совпадают - считаем застреванием
+                        val intersection = prev.intersect(currentSignature)
+                        intersection.size >= (currentSignature.size * 0.8).toInt() && currentSignature.isNotEmpty()
+                    }
+
+                    // Если нет критичных замечаний - увеличиваем счётчик
+                    if (criticalCount == 0) {
+                        consecutiveMinorOnlyIterations++
+                    } else {
+                        consecutiveMinorOnlyIterations = 0
+                    }
+
+                    // Умное решение об одобрении:
+                    // 1. Если застряли на тех же замечаниях - одобряем если нет критичных
+                    // 2. Если 3+ итерации только minor замечания - одобряем
+                    // 3. Если итерация >= 5 и нет критичных - одобряем
+                    val shouldForceApprove = when {
+                        isStuck && criticalCount == 0 -> {
+                            progress("   ⚠ Обнаружено застревание (те же замечания повторяются)")
+                            true
+                        }
+                        consecutiveMinorOnlyIterations >= 3 -> {
+                            progress("   ⚠ 3+ итерации только minor замечания")
+                            true
+                        }
+                        reviewIterations >= 5 && criticalCount == 0 -> {
+                            progress("   ⚠ 5+ итераций без критичных замечаний")
+                            true
+                        }
+                        else -> false
+                    }
+
+                    if (shouldForceApprove) {
+                        progress("   ✓ Принудительное одобрение (minor замечания игнорируются)")
+                        approved = true
+                        continue
+                    }
+
+                    // Сохраняем сигнатуру для следующей итерации
+                    previousCommentSignatures.add(currentSignature)
+                    if (previousCommentSignatures.size > 3) {
+                        previousCommentSignatures.removeAt(0) // Храним только последние 3
+                    }
+
                     changeState(PipelineState.FixingReviewComments(reviewIterations, reviewResult.comments.size))
 
-                    // Исправляем замечания
-                    val fixed = fixReviewComments(taskDescription, reviewResult, ragContext)
+                    // Исправляем только критичные замечания
+                    val criticalComments = reviewResult.comments.filter {
+                        it.severity == IssueSeverity.CRITICAL || it.severity == IssueSeverity.WARNING
+                    }
+                    val resultToFix = reviewResult.copy(comments = criticalComments)
+
+                    if (criticalComments.isEmpty()) {
+                        progress("   Нет критичных замечаний для исправления")
+                        approved = true
+                        continue
+                    }
+
+                    val fixed = fixReviewComments(taskDescription, resultToFix, ragContext)
                     if (fixed) {
                         progress("   Коммит исправлений...")
                         // Добавляем только файлы из замечаний
-                        val filesWithIssues = reviewResult.comments.map { it.file }.distinct()
+                        val filesWithIssues = criticalComments.map { it.file }.distinct()
                         for (file in filesWithIssues) {
                             runGit("git", "add", file)
                         }
                         runGit("git", "commit", "-m", "fix: исправлены замечания review (итерация $reviewIterations)")
                         runGit("git", "push")
                     } else {
-                        progress("   Не удалось исправить все замечания")
-                        if (reviewIterations >= config.maxReviewIterations) {
-                            changeState(PipelineState.NeedsUserInput(
-                                "Достигнут лимит итераций ($reviewIterations). Продолжить?",
-                                listOf("Продолжить", "Оставить PR открытым", "Замерджить как есть")
-                            ))
-                            errors.add("Достигнут лимит итераций review")
-                            break
-                        }
+                        progress("   Не удалось исправить замечания")
+                        // Даже если не удалось исправить - продолжаем, может CI пройдёт
                     }
                 }
+            }
+
+            if (!approved && reviewIterations >= config.maxReviewIterations) {
+                progress("   ⚠ Достигнут лимит итераций, продолжаем без полного одобрения")
+                // Не прерываем - пусть CI решит
             }
 
             // === ЭТАП 8: Ожидание CI ===
@@ -558,15 +659,365 @@ class FullCyclePipelineService(
         return cleanCodeResponse(response)
     }
 
+    /**
+     * Очищает ответ LLM от markdown артефактов.
+     * Агрессивно удаляет все возможные варианты markdown разметки.
+     */
     private fun cleanCodeResponse(response: String): String {
-        // Убираем markdown блоки если есть
-        var code = response
-        if (code.contains("```")) {
-            val match = Regex("```\\w*\\n([\\s\\S]*?)```").find(code)
-            code = match?.groupValues?.get(1) ?: code
+        var code = response.trim()
+
+        // 1. Удаляем markdown блоки ```kotlin ... ``` или ```...```
+        // Может быть несколько блоков, берём содержимое первого
+        val codeBlockPattern = Regex("```(?:kotlin|kt|java|gradle)?\\s*\\n([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
+        val match = codeBlockPattern.find(code)
+        if (match != null) {
+            code = match.groupValues[1]
+        } else {
+            // 2. Если нет закрывающего ```, но есть открывающий в начале - убираем его
+            val startPattern = Regex("^\\s*```(?:kotlin|kt|java|gradle)?\\s*\\n?", RegexOption.IGNORE_CASE)
+            code = code.replace(startPattern, "")
+
+            // 3. Убираем закрывающий ``` в конце если остался
+            code = code.replace(Regex("\\s*```\\s*$"), "")
         }
+
+        // 4. Убираем случайные одиночные ``` которые могут остаться
+        code = code.replace(Regex("^```\\w*\\s*$", RegexOption.MULTILINE), "")
+
+        // 5. Удаляем markdown заголовки в начале если LLM их добавил
+        code = code.replace(Regex("^#+\\s+.*\\n"), "")
+
+        // 6. Удаляем "Here's the code:" и подобные фразы в начале
+        code = code.replace(Regex("^(?:Here'?s?|Below is|The following).*?:\\s*\\n", RegexOption.IGNORE_CASE), "")
+
+        // 7. Финальная очистка пробелов
         return code.trim()
     }
+
+    // ==================== ЛОКАЛЬНАЯ ВАЛИДАЦИЯ С АВТОИСПРАВЛЕНИЕМ ====================
+
+    /**
+     * Результат локальной валидации (компиляция или тесты)
+     */
+    data class ValidationResult(
+        val success: Boolean,
+        val errorOutput: String = "",
+        val errorFiles: List<String> = emptyList(),  // Файлы с ошибками
+        val errorMessages: List<String> = emptyList()  // Отдельные ошибки
+    )
+
+    /**
+     * Запускает компиляцию и при ошибках пытается исправить автоматически.
+     * Возвращает true если компиляция успешна (сразу или после исправлений).
+     */
+    private suspend fun validateAndFixCompilation(
+        taskDescription: String,
+        ragContext: String,
+        maxAttempts: Int = 3
+    ): Boolean {
+        repeat(maxAttempts) { attempt ->
+            progress("   🔨 Проверка компиляции (попытка ${attempt + 1}/$maxAttempts)...")
+
+            val result = runCompilation()
+
+            if (result.success) {
+                if (attempt > 0) {
+                    progress("   ✓ Компиляция успешна после исправлений!")
+                }
+                return true
+            }
+
+            progress("   ✗ Ошибки компиляции: ${result.errorMessages.size}")
+
+            // Пытаемся исправить
+            val fixed = fixCompilationErrors(taskDescription, result, ragContext)
+            if (!fixed) {
+                progress("   ⚠ Не удалось автоматически исправить ошибки")
+                if (attempt == maxAttempts - 1) {
+                    progress("   Логи ошибок:")
+                    result.errorOutput.lines().take(20).forEach { line ->
+                        progress("      $line")
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Запускает компиляцию проекта и парсит ошибки.
+     */
+    private suspend fun runCompilation(): ValidationResult {
+        val output = runGit("./gradlew", "compileKotlin", "--console=plain", "-q")
+
+        // Проверяем на успешную компиляцию
+        val hasBuildFailed = output.contains("BUILD FAILED", ignoreCase = true) ||
+                output.contains("Compilation error", ignoreCase = true) ||
+                output.contains("Unresolved reference", ignoreCase = true) ||
+                output.contains("error:", ignoreCase = true)
+
+        if (!hasBuildFailed && !output.contains("FAILURE")) {
+            return ValidationResult(success = true)
+        }
+
+        // Парсим ошибки
+        val errorPattern = Regex("e:\\s*([^:]+):(\\d+):(\\d+):\\s*(.+)")
+        val errors = mutableListOf<String>()
+        val errorFiles = mutableSetOf<String>()
+
+        output.lines().forEach { line ->
+            val match = errorPattern.find(line)
+            if (match != null) {
+                val file = match.groupValues[1]
+                val lineNum = match.groupValues[2]
+                val message = match.groupValues[4]
+                errors.add("$file:$lineNum: $message")
+                errorFiles.add(file)
+            } else if (line.contains("error:", ignoreCase = true) ||
+                line.contains("Unresolved reference", ignoreCase = true)) {
+                errors.add(line.trim())
+            }
+        }
+
+        return ValidationResult(
+            success = false,
+            errorOutput = output,
+            errorFiles = errorFiles.toList(),
+            errorMessages = errors
+        )
+    }
+
+    /**
+     * Пытается исправить ошибки компиляции с помощью LLM.
+     */
+    private suspend fun fixCompilationErrors(
+        taskDescription: String,
+        result: ValidationResult,
+        ragContext: String
+    ): Boolean {
+        // Группируем ошибки по файлам
+        val errorsByFile = mutableMapOf<String, MutableList<String>>()
+
+        // Парсим ошибки формата "file:line: message"
+        result.errorMessages.forEach { error ->
+            val match = Regex("([^:]+):(\\d+):(.+)").find(error)
+            if (match != null) {
+                val file = match.groupValues[1].trim()
+                val message = match.groupValues[3].trim()
+                errorsByFile.getOrPut(file) { mutableListOf() }.add("Line ${match.groupValues[2]}: $message")
+            }
+        }
+
+        // Если не смогли распарсить файлы, пробуем из errorFiles
+        if (errorsByFile.isEmpty() && result.errorFiles.isNotEmpty()) {
+            result.errorFiles.forEach { file ->
+                errorsByFile[file] = result.errorMessages.toMutableList()
+            }
+        }
+
+        var anyFixed = false
+
+        for ((filePath, errors) in errorsByFile) {
+            val file = File(projectRoot, filePath)
+            if (!file.exists()) {
+                // Пробуем найти файл в src/main/kotlin
+                val altFile = File(projectRoot, "src/main/kotlin/$filePath")
+                if (!altFile.exists()) continue
+            }
+
+            val actualFile = if (file.exists()) file else File(projectRoot, "src/main/kotlin/$filePath")
+            if (!actualFile.exists()) continue
+
+            val currentContent = actualFile.readText()
+
+            val prompt = buildString {
+                appendLine("Исправь ошибки компиляции в файле ${actualFile.name}")
+                appendLine()
+                appendLine("## Ошибки компиляции")
+                errors.forEach { appendLine("- $it") }
+                appendLine()
+                appendLine("## Текущий код файла")
+                appendLine("```kotlin")
+                appendLine(currentContent.take(15000))
+                appendLine("```")
+                appendLine()
+                appendLine("## Контекст задачи")
+                appendLine(taskDescription)
+                appendLine()
+                appendLine("Верни ПОЛНЫЙ исправленный код файла. БЕЗ markdown блоков и пояснений.")
+            }
+
+            try {
+                val response = callLlm(prompt, SYSTEM_PROMPT_FIXER)
+                val newContent = cleanCodeResponse(response)
+
+                if (newContent.isNotBlank() && newContent != currentContent) {
+                    // Защита от truncation
+                    val oldLines = currentContent.lines().size
+                    val newLines = newContent.lines().size
+                    if (oldLines > 50 && newLines < oldLines * 0.5) {
+                        progress("      ⚠ Пропущен ${actualFile.name}: размер уменьшился слишком сильно")
+                        continue
+                    }
+
+                    actualFile.writeText(newContent)
+                    progress("      ✓ Исправлен: ${actualFile.name}")
+                    anyFixed = true
+                }
+            } catch (e: Exception) {
+                progress("      ⚠ Не удалось исправить ${actualFile.name}: ${e.message}")
+            }
+        }
+
+        return anyFixed
+    }
+
+    /**
+     * Запускает тесты и при ошибках пытается исправить автоматически.
+     * Возвращает true если тесты проходят (сразу или после исправлений).
+     */
+    private suspend fun validateAndFixTests(
+        taskDescription: String,
+        ragContext: String,
+        maxAttempts: Int = 3
+    ): Boolean {
+        repeat(maxAttempts) { attempt ->
+            progress("   🧪 Запуск тестов (попытка ${attempt + 1}/$maxAttempts)...")
+
+            val result = runTests()
+
+            if (result.success) {
+                if (attempt > 0) {
+                    progress("   ✓ Тесты проходят после исправлений!")
+                }
+                return true
+            }
+
+            progress("   ✗ Тесты упали: ${result.errorMessages.size} ошибок")
+
+            // Пытаемся исправить
+            val fixed = fixTestErrors(taskDescription, result, ragContext)
+            if (!fixed) {
+                progress("   ⚠ Не удалось автоматически исправить тесты")
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Запускает тесты и парсит результаты.
+     */
+    private suspend fun runTests(): ValidationResult {
+        val output = runGit("./gradlew", "test", "--console=plain", "-q")
+
+        if (!output.contains("FAILED") && !output.contains("FAILURE")) {
+            return ValidationResult(success = true)
+        }
+
+        // Парсим упавшие тесты
+        val testFailPattern = Regex("(.+)\\s+>\\s+(.+)\\s+FAILED")
+        val errors = mutableListOf<String>()
+        val errorFiles = mutableSetOf<String>()
+
+        output.lines().forEach { line ->
+            val match = testFailPattern.find(line)
+            if (match != null) {
+                val testClass = match.groupValues[1]
+                val testMethod = match.groupValues[2]
+                errors.add("$testClass.$testMethod FAILED")
+                // Пытаемся найти файл теста
+                val testFile = testClass.replace(".", "/") + ".kt"
+                errorFiles.add("src/test/kotlin/$testFile")
+            }
+        }
+
+        // Ищем assertion errors
+        val assertionPattern = Regex("expected:\\s*<(.+)>\\s+but was:\\s*<(.+)>")
+        output.lines().forEach { line ->
+            val match = assertionPattern.find(line)
+            if (match != null) {
+                errors.add("Assertion failed: expected <${match.groupValues[1]}> but was <${match.groupValues[2]}>")
+            }
+        }
+
+        return ValidationResult(
+            success = false,
+            errorOutput = output,
+            errorFiles = errorFiles.toList(),
+            errorMessages = errors
+        )
+    }
+
+    /**
+     * Пытается исправить упавшие тесты.
+     */
+    private suspend fun fixTestErrors(
+        taskDescription: String,
+        result: ValidationResult,
+        ragContext: String
+    ): Boolean {
+        val prompt = buildString {
+            appendLine("Тесты упали. Проанализируй ошибки и исправь код.")
+            appendLine()
+            appendLine("## Ошибки тестов")
+            result.errorMessages.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("## Полный вывод")
+            appendLine("```")
+            appendLine(result.errorOutput.take(5000))
+            appendLine("```")
+            appendLine()
+            appendLine("## Задача")
+            appendLine(taskDescription)
+            appendLine()
+            appendLine("Опиши какой файл нужно исправить и верни исправленный код.")
+            appendLine("Формат ответа:")
+            appendLine("FILE: путь/к/файлу.kt")
+            appendLine("```kotlin")
+            appendLine("исправленный код")
+            appendLine("```")
+        }
+
+        try {
+            val response = callLlm(prompt, SYSTEM_PROMPT_FIXER)
+
+            // Парсим ответ - ищем FILE: и код
+            val filePattern = Regex("FILE:\\s*(.+\\.kt)")
+            val fileMatch = filePattern.find(response)
+
+            if (fileMatch != null) {
+                val filePath = fileMatch.groupValues[1].trim()
+                val file = File(projectRoot, filePath)
+
+                if (file.exists()) {
+                    val codeMatch = Regex("```kotlin\\s*\\n([\\s\\S]*?)```").find(response)
+                    if (codeMatch != null) {
+                        val newContent = codeMatch.groupValues[1].trim()
+                        val oldContent = file.readText()
+
+                        // Защита от truncation
+                        val oldLines = oldContent.lines().size
+                        val newLines = newContent.lines().size
+                        if (oldLines > 50 && newLines < oldLines * 0.5) {
+                            return false
+                        }
+
+                        file.writeText(newContent)
+                        progress("      ✓ Исправлен: $filePath")
+                        return true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            progress("      ⚠ Ошибка при исправлении тестов: ${e.message}")
+        }
+
+        return false
+    }
+
+    // ==================== END ЛОКАЛЬНАЯ ВАЛИДАЦИЯ ====================
 
     private suspend fun performSelfReview(repoInfo: RepoInfo, prNumber: Int): SelfReviewResult {
         if (prReviewService == null) {
@@ -728,35 +1179,253 @@ class FullCyclePipelineService(
         }
     }
 
+    // ==================== CI LOGS & FIX ====================
+
+    /**
+     * Получает логи последнего неуспешного CI run для PR.
+     * Использует gh CLI для доступа к GitHub Actions.
+     */
+    private suspend fun fetchCILogs(repoInfo: RepoInfo, prNumber: Int): String? {
+        try {
+            // Получаем список workflow runs для PR
+            val runsResult = runGit(
+                "gh", "run", "list",
+                "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+                "--branch", runGit("git", "branch", "--show-current").trim(),
+                "--status", "failure",
+                "--json", "databaseId,conclusion,status",
+                "--limit", "1"
+            )
+
+            if (runsResult.isBlank() || runsResult == "[]") {
+                // Пробуем completed runs
+                val completedRuns = runGit(
+                    "gh", "run", "list",
+                    "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+                    "--branch", runGit("git", "branch", "--show-current").trim(),
+                    "--json", "databaseId,conclusion,status",
+                    "--limit", "1"
+                )
+                if (completedRuns.isBlank() || completedRuns == "[]") return null
+
+                val runId = Regex(""""databaseId"\s*:\s*(\d+)""").find(completedRuns)?.groupValues?.get(1)
+                    ?: return null
+
+                return fetchRunLogs(repoInfo, runId)
+            }
+
+            val runId = Regex(""""databaseId"\s*:\s*(\d+)""").find(runsResult)?.groupValues?.get(1)
+                ?: return null
+
+            return fetchRunLogs(repoInfo, runId)
+        } catch (e: Exception) {
+            progress("   ⚠ Не удалось получить логи CI: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * Получает логи конкретного workflow run.
+     */
+    private suspend fun fetchRunLogs(repoInfo: RepoInfo, runId: String): String? {
+        // gh run view показывает детали run, включая failed steps
+        val viewResult = runGit(
+            "gh", "run", "view", runId,
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--log-failed"  // Показать логи только упавших шагов
+        )
+
+        if (viewResult.isNotBlank() && !viewResult.contains("error:")) {
+            return viewResult
+        }
+
+        // Fallback: получаем все логи
+        val fullLogs = runGit(
+            "gh", "run", "view", runId,
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--log"
+        )
+
+        return if (fullLogs.isNotBlank() && !fullLogs.contains("error:")) {
+            // Берём последние 200 строк (обычно там ошибки)
+            fullLogs.lines().takeLast(200).joinToString("\n")
+        } else null
+    }
+
+    /**
+     * Исправляет ошибки CI, используя реальные логи GitHub Actions.
+     * Полноценная реализация с анализом логов и автоисправлением.
+     */
     private suspend fun fixCIError(
         taskDescription: String,
         ciResult: CIResult,
         ragContext: String
     ): Boolean {
+        val repoInfo = getRepoInfo() ?: return false
+
+        // Получаем реальные логи CI
+        progress("   Получаю логи CI...")
+        val ciLogs = if (ciResult.logs.isNullOrBlank()) {
+            fetchCILogs(repoInfo, 0) // PR number not needed for branch-based lookup
+        } else {
+            ciResult.logs
+        }
+
+        if (ciLogs.isNullOrBlank()) {
+            progress("   ⚠ Не удалось получить логи CI")
+            // Пробуем локальную компиляцию/тесты
+            return runLocalValidation(taskDescription, ragContext)
+        }
+
+        progress("   Анализирую ошибки в логах...")
+
+        // Парсим ошибки из логов
+        val errorAnalysis = analyzeCILogs(ciLogs)
+
         val prompt = buildString {
-            appendLine("CI упал с ошибкой. Проанализируй и предложи исправление.")
+            appendLine("CI pipeline упал. Проанализируй логи и исправь ошибки.")
             appendLine()
-            appendLine("## Ошибка CI")
-            appendLine(ciResult.errorMessage ?: "Неизвестная ошибка")
-            appendLine()
-            if (ciResult.logs != null) {
-                appendLine("## Логи")
-                appendLine(ciResult.logs.take(5000))
-                appendLine()
+            appendLine("## Анализ ошибок")
+            appendLine("Тип ошибки: ${errorAnalysis.errorType}")
+            if (errorAnalysis.failedFiles.isNotEmpty()) {
+                appendLine("Файлы с ошибками: ${errorAnalysis.failedFiles.joinToString(", ")}")
             }
+            appendLine()
+            appendLine("## Логи CI (последние сообщения)")
+            appendLine("```")
+            appendLine(ciLogs.take(8000))
+            appendLine("```")
+            appendLine()
             appendLine("## Задача")
             appendLine(taskDescription)
             appendLine()
-            appendLine("Опиши какие файлы нужно изменить и как.")
+            appendLine("Верни исправленный код для каждого файла с ошибкой.")
+            appendLine("Формат:")
+            appendLine("FILE: путь/к/файлу.kt")
+            appendLine("```kotlin")
+            appendLine("полный исправленный код")
+            appendLine("```")
         }
 
-        val response = callLlm(prompt, SYSTEM_PROMPT_CODER)
+        try {
+            val response = callLlm(prompt, SYSTEM_PROMPT_FIXER)
 
-        // Пытаемся применить исправления на основе ответа LLM
-        // (упрощённая реализация)
-        return response.contains("исправ", ignoreCase = true) ||
-                response.contains("fix", ignoreCase = true)
+            // Парсим и применяем исправления
+            val filePattern = Regex("FILE:\\s*(.+\\.kt)")
+            val codePattern = Regex("```(?:kotlin)?\\s*\\n([\\s\\S]*?)```")
+
+            var anyFixed = false
+            var currentPos = 0
+
+            while (true) {
+                val fileMatch = filePattern.find(response, currentPos) ?: break
+                val filePath = fileMatch.groupValues[1].trim()
+                currentPos = fileMatch.range.last
+
+                val codeMatch = codePattern.find(response, currentPos) ?: break
+                val newCode = codeMatch.groupValues[1].trim()
+                currentPos = codeMatch.range.last
+
+                val file = File(projectRoot, filePath)
+                if (file.exists() && newCode.isNotBlank()) {
+                    val oldContent = file.readText()
+                    val oldLines = oldContent.lines().size
+                    val newLines = newCode.lines().size
+
+                    // Защита от truncation
+                    if (oldLines > 50 && newLines < oldLines * 0.5) {
+                        progress("      ⚠ Пропущен $filePath: размер уменьшился слишком сильно")
+                        continue
+                    }
+
+                    file.writeText(newCode)
+                    progress("      ✓ Исправлен: $filePath")
+                    anyFixed = true
+                }
+            }
+
+            return anyFixed
+        } catch (e: Exception) {
+            progress("   ⚠ Ошибка при исправлении CI: ${e.message}")
+            return false
+        }
     }
+
+    /**
+     * Запускает локальную валидацию как fallback если не удалось получить CI логи.
+     */
+    private suspend fun runLocalValidation(taskDescription: String, ragContext: String): Boolean {
+        progress("   Запускаю локальную проверку...")
+
+        // Сначала пробуем компиляцию
+        val compileResult = runCompilation()
+        if (!compileResult.success) {
+            return fixCompilationErrors(taskDescription, compileResult, ragContext)
+        }
+
+        // Потом тесты
+        val testResult = runTests()
+        if (!testResult.success) {
+            return fixTestErrors(taskDescription, testResult, ragContext)
+        }
+
+        return true // Локально всё ок
+    }
+
+    /**
+     * Анализ логов CI для определения типа ошибки.
+     */
+    private data class CIErrorAnalysis(
+        val errorType: String,
+        val failedFiles: List<String>,
+        val errorMessages: List<String>
+    )
+
+    private fun analyzeCILogs(logs: String): CIErrorAnalysis {
+        val failedFiles = mutableSetOf<String>()
+        val errorMessages = mutableListOf<String>()
+        var errorType = "unknown"
+
+        // Определяем тип ошибки
+        when {
+            logs.contains("compileKotlin FAILED", ignoreCase = true) ||
+            logs.contains("Compilation error", ignoreCase = true) ||
+            logs.contains("Unresolved reference", ignoreCase = true) -> {
+                errorType = "compilation"
+
+                // Парсим ошибки компиляции
+                val errorPattern = Regex("e:\\s*([^:]+):(\\d+):\\d+:\\s*(.+)")
+                errorPattern.findAll(logs).forEach { match ->
+                    failedFiles.add(match.groupValues[1])
+                    errorMessages.add("${match.groupValues[1]}:${match.groupValues[2]}: ${match.groupValues[3]}")
+                }
+            }
+            logs.contains("test FAILED", ignoreCase = true) ||
+            logs.contains("FAILED", ignoreCase = true) && logs.contains("test", ignoreCase = true) -> {
+                errorType = "test"
+
+                // Парсим упавшие тесты
+                val testPattern = Regex("(.+)\\s+>\\s+(.+)\\s+FAILED")
+                testPattern.findAll(logs).forEach { match ->
+                    val testClass = match.groupValues[1]
+                    failedFiles.add("src/test/kotlin/${testClass.replace(".", "/")}.kt")
+                    errorMessages.add("${match.groupValues[1]}.${match.groupValues[2]} FAILED")
+                }
+            }
+            logs.contains("lint", ignoreCase = true) ||
+            logs.contains("checkstyle", ignoreCase = true) ||
+            logs.contains("ktlint", ignoreCase = true) -> {
+                errorType = "lint"
+            }
+            else -> {
+                errorType = "unknown"
+            }
+        }
+
+        return CIErrorAnalysis(errorType, failedFiles.toList(), errorMessages)
+    }
+
+    // ==================== END CI LOGS & FIX ====================
 
     private suspend fun checkForConflicts(repoInfo: RepoInfo, prNumber: Int): List<String> {
         try {
@@ -800,16 +1469,20 @@ class FullCyclePipelineService(
         }
     }
 
+    /**
+     * Мерджит PR через gh CLI (MCP не имеет merge инструмента).
+     */
     private suspend fun mergePullRequest(repoInfo: RepoInfo, prNumber: Int) {
-        githubClient?.callTool(
-            "merge_pull_request",
-            mapOf(
-                "owner" to JsonPrimitive(repoInfo.owner),
-                "repo" to JsonPrimitive(repoInfo.repo),
-                "pull_number" to JsonPrimitive(prNumber),
-                "merge_method" to JsonPrimitive("squash")
-            )
+        val result = runGit(
+            "gh", "pr", "merge", prNumber.toString(),
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--squash",
+            "--delete-branch"
         )
+
+        if (result.contains("error") || result.contains("failed")) {
+            throw PipelineException("Ошибка merge PR #$prNumber: $result")
+        }
     }
 
     private suspend fun createPullRequest(
@@ -1087,9 +1760,25 @@ class FullCyclePipelineService(
 2. Следуй существующему стилю проекта
 3. Не добавляй лишние комментарии
 4. Возвращай ТОЛЬКО код, без пояснений
-5. Если нужен markdown блок — используй его корректно
+5. НЕ используй markdown блоки (``` и т.д.) — возвращай чистый код
 
 Всегда отвечай готовым к использованию кодом."""
+
+        private const val SYSTEM_PROMPT_FIXER = """Ты — опытный Kotlin разработчик, специализирующийся на исправлении ошибок.
+
+Твоя задача:
+1. Проанализировать ошибки компиляции или тестов
+2. Найти причину ошибки в коде
+3. Исправить код минимальными изменениями
+
+Правила:
+1. Исправляй ТОЛЬКО то, что вызывает ошибку
+2. Не меняй логику работы без необходимости
+3. Сохраняй стиль существующего кода
+4. Возвращай ПОЛНЫЙ код файла (не фрагменты)
+5. НЕ используй markdown блоки — возвращай чистый код
+
+Будь точным и лаконичным."""
     }
 }
 
