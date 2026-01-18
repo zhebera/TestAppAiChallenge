@@ -764,6 +764,13 @@ class FullCyclePipelineService(
         title: String,
         plan: ExecutionPlan
     ): Pair<Int, String> {
+        // Сначала проверяем, существует ли уже PR для этой ветки
+        val existingPr = getExistingPrForBranch(repoInfo, branchName)
+        if (existingPr != null) {
+            progress("   ✓ PR уже существует: #${existingPr.first}")
+            return existingPr
+        }
+
         val body = buildString {
             appendLine("## Описание")
             appendLine(plan.summary)
@@ -841,6 +848,30 @@ class FullCyclePipelineService(
             ?: throw PipelineException("Не найден номер PR в URL: $prUrl")
 
         return Pair(prNumber, prUrl)
+    }
+
+    /**
+     * Проверяет, существует ли уже PR для данной ветки
+     */
+    private suspend fun getExistingPrForBranch(repoInfo: RepoInfo, branchName: String): Pair<Int, String>? {
+        val result = runGit(
+            "gh", "pr", "list",
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--head", branchName,
+            "--state", "open",
+            "--json", "number,url",
+            "--limit", "1"
+        )
+
+        // Парсим JSON ответ: [{"number":10,"url":"https://..."}]
+        if (result.isBlank() || result == "[]") return null
+
+        val prNumber = Regex(""""number"\s*:\s*(\d+)""").find(result)?.groupValues?.get(1)?.toIntOrNull()
+        val prUrl = Regex(""""url"\s*:\s*"([^"]+)"""").find(result)?.groupValues?.get(1)
+
+        return if (prNumber != null && prUrl != null) {
+            Pair(prNumber, prUrl)
+        } else null
     }
 
     private fun generateBranchSuffix(taskDescription: String): String {
