@@ -51,6 +51,7 @@ fun main(args: Array<String>) = runBlocking {
     }
 
     val githubToken = System.getenv("GITHUB_TOKEN")
+        ?: System.getenv("APPLICATION_GITHUB_TOKEN")
         ?: System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
 
     if (githubToken.isNullOrBlank()) {

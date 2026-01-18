@@ -110,9 +110,11 @@ class FullCyclePipelineService(
                 runGit("git", "checkout", "-b", branchName)
             }
 
-            // Git add
+            // Git add — только файлы из плана, не все!
             progress("   git add...")
-            runGit("git", "add", "-A")
+            for (change in plan.plannedChanges) {
+                runGit("git", "add", change.filePath)
+            }
 
             // Git commit
             val commitMessage = generateCommitMessage(taskDescription, plan)
@@ -157,7 +159,11 @@ class FullCyclePipelineService(
                     val fixed = fixReviewComments(taskDescription, reviewResult, ragContext)
                     if (fixed) {
                         progress("   Коммит исправлений...")
-                        runGit("git", "add", "-A")
+                        // Добавляем только файлы из замечаний
+                        val filesWithIssues = reviewResult.comments.map { it.file }.distinct()
+                        for (file in filesWithIssues) {
+                            runGit("git", "add", file)
+                        }
                         runGit("git", "commit", "-m", "fix: исправлены замечания review (итерация $reviewIterations)")
                         runGit("git", "push")
                     } else {
@@ -747,25 +753,68 @@ class FullCyclePipelineService(
             appendLine("*Автоматически создано Full-Cycle Pipeline*")
         }
 
-        val result = githubClient?.callTool(
-            "create_pull_request",
-            mapOf(
-                "owner" to JsonPrimitive(repoInfo.owner),
-                "repo" to JsonPrimitive(repoInfo.repo),
-                "title" to JsonPrimitive(title),
-                "body" to JsonPrimitive(body),
-                "head" to JsonPrimitive(branchName),
-                "base" to JsonPrimitive("main")
+        // Пробуем создать PR через MCP
+        try {
+            val result = githubClient?.callTool(
+                "create_pull_request",
+                mapOf(
+                    "owner" to JsonPrimitive(repoInfo.owner),
+                    "repo" to JsonPrimitive(repoInfo.repo),
+                    "title" to JsonPrimitive(title),
+                    "body" to JsonPrimitive(body),
+                    "head" to JsonPrimitive(branchName),
+                    "base" to JsonPrimitive("main")
+                )
             )
+
+            val content = result?.content?.firstOrNull()?.text
+            if (content != null) {
+                val prNumber = Regex(""""number"\s*:\s*(\d+)""").find(content)?.groupValues?.get(1)?.toIntOrNull()
+                val prUrl = Regex(""""html_url"\s*:\s*"([^"]+)"""").find(content)?.groupValues?.get(1)
+
+                if (prNumber != null) {
+                    return Pair(prNumber, prUrl ?: "https://github.com/${repoInfo.owner}/${repoInfo.repo}/pull/$prNumber")
+                }
+            }
+        } catch (e: Exception) {
+            progress("   ⚠ MCP не смог создать PR: ${e.message}")
+            progress("   Пробую через gh CLI...")
+        }
+
+        // Fallback: создаём PR через gh CLI
+        return createPullRequestViaGhCli(repoInfo, branchName, title, body)
+    }
+
+    /**
+     * Создание PR через gh CLI как fallback
+     */
+    private suspend fun createPullRequestViaGhCli(
+        repoInfo: RepoInfo,
+        branchName: String,
+        title: String,
+        body: String
+    ): Pair<Int, String> {
+        // Экранируем body для shell
+        val escapedBody = body.replace("\"", "\\\"").replace("\n", "\\n")
+
+        val result = runGit(
+            "gh", "pr", "create",
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--head", branchName,
+            "--base", "main",
+            "--title", title,
+            "--body", body
         )
 
-        val content = result?.content?.firstOrNull()?.text ?: throw PipelineException("Не удалось создать PR")
+        // gh pr create возвращает URL созданного PR
+        val prUrl = result.trim()
+        if (!prUrl.startsWith("https://")) {
+            throw PipelineException("Не удалось создать PR через gh CLI: $result")
+        }
 
-        val prNumber = Regex(""""number"\s*:\s*(\d+)""").find(content)?.groupValues?.get(1)?.toIntOrNull()
-            ?: throw PipelineException("Не найден номер PR")
-
-        val prUrl = Regex(""""html_url"\s*:\s*"([^"]+)"""").find(content)?.groupValues?.get(1)
-            ?: "https://github.com/${repoInfo.owner}/${repoInfo.repo}/pull/$prNumber"
+        // Извлекаем номер PR из URL
+        val prNumber = Regex("""/pull/(\d+)""").find(prUrl)?.groupValues?.get(1)?.toIntOrNull()
+            ?: throw PipelineException("Не найден номер PR в URL: $prUrl")
 
         return Pair(prNumber, prUrl)
     }
