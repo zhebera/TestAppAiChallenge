@@ -641,36 +641,51 @@ class FullCyclePipelineService(
     }
 
     private suspend fun getCIStatus(repoInfo: RepoInfo, prNumber: Int): CIResult {
-        try {
-            // Получаем статус checks через GitHub API
-            val result = githubClient?.callTool(
-                "get_pull_request",
-                mapOf(
-                    "owner" to JsonPrimitive(repoInfo.owner),
-                    "repo" to JsonPrimitive(repoInfo.repo),
-                    "pull_number" to JsonPrimitive(prNumber)
-                )
-            )
+        // Используем gh CLI для проверки статуса CI (надёжнее чем MCP)
+        val result = runGit(
+            "gh", "pr", "view", prNumber.toString(),
+            "--repo", "${repoInfo.owner}/${repoInfo.repo}",
+            "--json", "mergeable,mergeStateStatus,statusCheckRollup"
+        )
 
-            val content = result?.content?.firstOrNull()?.text ?: return CIResult(CIStatus.PENDING)
+        if (result.isBlank() || result.contains("error")) {
+            return CIResult(CIStatus.PENDING)
+        }
 
-            // Парсим статус из ответа
-            return try {
-                val prJson = json.parseToJsonElement(content).jsonObject
-                val mergeable = prJson["mergeable"]?.jsonPrimitive?.booleanOrNull
-                val mergeableState = prJson["mergeable_state"]?.jsonPrimitive?.content
+        return try {
+            val prJson = json.parseToJsonElement(result).jsonObject
+
+            // Проверяем статус всех checks
+            val checksArray = prJson["statusCheckRollup"]?.jsonArray
+            if (checksArray != null && checksArray.isNotEmpty()) {
+                val allCompleted = checksArray.all { check ->
+                    check.jsonObject["status"]?.jsonPrimitive?.content == "COMPLETED"
+                }
+                val allSuccess = checksArray.all { check ->
+                    check.jsonObject["conclusion"]?.jsonPrimitive?.content == "SUCCESS"
+                }
+                val anyFailed = checksArray.any { check ->
+                    val conclusion = check.jsonObject["conclusion"]?.jsonPrimitive?.content
+                    conclusion == "FAILURE" || conclusion == "CANCELLED"
+                }
 
                 when {
-                    mergeable == true && mergeableState == "clean" -> CIResult(CIStatus.SUCCESS)
-                    mergeableState == "blocked" -> CIResult(CIStatus.FAILED, errorMessage = "CI checks failed")
-                    mergeableState == "unstable" -> CIResult(CIStatus.FAILED, errorMessage = "Unstable")
+                    allCompleted && allSuccess -> CIResult(CIStatus.SUCCESS)
+                    anyFailed -> CIResult(CIStatus.FAILED, errorMessage = "CI checks failed")
+                    allCompleted -> CIResult(CIStatus.FAILED, errorMessage = "Some checks not successful")
                     else -> CIResult(CIStatus.PENDING)
                 }
-            } catch (e: Exception) {
-                CIResult(CIStatus.PENDING)
+            } else {
+                // Нет checks — считаем успехом (репо без CI)
+                val mergeable = prJson["mergeable"]?.jsonPrimitive?.content
+                if (mergeable == "MERGEABLE") {
+                    CIResult(CIStatus.SUCCESS)
+                } else {
+                    CIResult(CIStatus.PENDING)
+                }
             }
         } catch (e: Exception) {
-            return CIResult(CIStatus.PENDING)
+            CIResult(CIStatus.PENDING)
         }
     }
 
