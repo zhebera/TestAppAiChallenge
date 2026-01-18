@@ -83,17 +83,13 @@ class FullCycleCommand(
             println(message)
         }
 
-        // Выполняем пайплайн
+        // Выполняем пайплайн (авто-подтверждение плана)
         val report = pipelineService.executeFullCycle(
             taskDescription = taskDescription,
             confirmPlan = { plan ->
-                // Запрашиваем подтверждение у пользователя
                 println("\n" + "-".repeat(40))
-                print("Начать выполнение? (y/n): ")
-                System.out.flush()
-
-                val response = readlnOrNull()?.trim()?.lowercase()
-                response == "y" || response == "yes" || response == "да"
+                println("✓ План подтверждён автоматически")
+                true
             }
         )
 
