@@ -844,15 +844,18 @@ class FullCyclePipelineService(
     }
 
     private fun generateBranchSuffix(taskDescription: String): String {
+        val timestamp = System.currentTimeMillis() / 1000
         val words = taskDescription
             .lowercase()
             .replace(Regex("[^a-zа-яё0-9\\s]"), "")
             .split(Regex("\\s+"))
+            .filter { it.length <= 15 }  // Пропускаем слишком длинные слова (пути и т.п.)
             .take(3)
             .joinToString("-")
+            .take(30)  // Макс 30 символов для описания
 
-        val timestamp = System.currentTimeMillis() / 1000
-        return "$words-$timestamp".take(50)
+        // Timestamp в начале гарантирует уникальность даже при одинаковых описаниях
+        return "$timestamp-$words"
     }
 
     private fun generateCommitMessage(taskDescription: String, plan: ExecutionPlan): String {
