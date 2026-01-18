@@ -99,6 +99,17 @@ class FullCyclePipelineService(
             changeState(PipelineState.MakingChanges)
             val changedFiles = makeChanges(taskDescription, plan, ragContext)
 
+            // Проверяем, были ли реально внесены изменения
+            if (changedFiles.isEmpty()) {
+                progress("\n⚠️ Не удалось внести изменения (возможно, защита от truncation)")
+                progress("   Попробуйте разбить задачу на меньшие части")
+                return PipelineReport(
+                    success = false,
+                    summary = "Изменения не были внесены из-за защиты от truncation",
+                    errors = listOf("Файлы слишком большие для модификации. Разбейте задачу на части.")
+                )
+            }
+
             // === ЭТАП 5: Git операции ===
             val branchName = "feature/ai-${generateBranchSuffix(taskDescription)}"
             progress("\n🌿 Создаю ветку $branchName...")
