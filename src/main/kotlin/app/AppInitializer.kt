@@ -19,7 +19,8 @@ data class UseCases(
     val sendMessage: SendMessageUseCase,
     val compressHistory: CompressHistoryUseCase,
     val helpClient: LlmClient?,
-    val mainClient: LlmClient?  // Для PR Review и других продвинутых команд
+    val mainClient: LlmClient?,  // Для PR Review и других продвинутых команд (с MCP tools)
+    val pipelineClient: LlmClient?  // Для FullCycle Pipeline (без MCP tools, работает с git напрямую)
 )
 
 object AppInitializer {
@@ -90,11 +91,21 @@ object AppInitializer {
             model = AppConfig.CLAUDE_HAIKU_MODEL
         )
 
+        // Создаём отдельный Sonnet клиент для pipeline (без MCP tools)
+        // Pipeline работает с git напрямую и не нуждается в MCP инструментах
+        val pipelineClient: LlmClient = AnthropicClient(
+            http = client,
+            json = json,
+            apiKey = anthropicKey,
+            model = AppConfig.CLAUDE_SONNET_MODEL
+        )
+
         return UseCases(
             sendMessage = SendMessageUseCase(chatRepository),
             compressHistory = compressHistory,
             helpClient = helpClient,
-            mainClient = mainClient
+            mainClient = mainClient,
+            pipelineClient = pipelineClient
         )
     }
 }

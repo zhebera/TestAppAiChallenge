@@ -25,7 +25,7 @@ class ChatLoop(
     private val multiMcpClient: MultiMcpClient? = null,
     private val classpath: String? = null
 ) {
-    private val commandRegistry = CommandRegistry(ragService, useCases.helpClient, useCases.mainClient)
+    private val commandRegistry = CommandRegistry(ragService, useCases.helpClient, useCases.mainClient, useCases.pipelineClient)
 
     suspend fun run() {
         printWelcome()
