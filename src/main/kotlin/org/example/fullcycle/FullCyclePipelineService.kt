@@ -861,13 +861,14 @@ class FullCyclePipelineService(
             maxTokens = 4096
         )
 
-        // Retry с экспоненциальной задержкой для rate limit
+        // Retry с длинной задержкой для rate limit (50k tokens/minute)
         var lastError: Exception? = null
+        val retryDelays = listOf(30_000L, 60_000L) // 30s, 60s - rate limit per minute
         repeat(3) { attempt ->
             try {
                 // Задержка перед повторной попыткой
-                if (attempt > 0) {
-                    val delayMs = (1000L * (attempt + 1)) // 2s, 3s
+                if (attempt > 0 && attempt <= retryDelays.size) {
+                    val delayMs = retryDelays[attempt - 1]
                     progress("   ⏳ Rate limit, ждём ${delayMs/1000}s...")
                     delay(delayMs)
                 }
@@ -878,9 +879,10 @@ class FullCyclePipelineService(
                 if (!e.message.orEmpty().contains("rate_limit", ignoreCase = true)) {
                     throw e // Не rate limit - пробрасываем сразу
                 }
+                progress("   ⚠ Rate limit (попытка ${attempt + 1}/3)")
             }
         }
-        throw lastError ?: PipelineException("Не удалось вызвать LLM после 3 попыток")
+        throw lastError ?: PipelineException("Не удалось вызвать LLM после 3 попыток (rate limit)")
     }
 
     private suspend fun runGit(vararg command: String): String {
