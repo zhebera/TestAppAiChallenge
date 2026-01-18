@@ -186,3 +186,19 @@ tasks.register<JavaExec>("runTeamAssistantTest") {
     standardOutput = System.out
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
+
+// Task to run Full-Cycle Pipeline
+// Usage: ./gradlew runFullCycle --args="'описание задачи' [--auto] [--no-merge] [--output report.md]"
+tasks.register<JavaExec>("runFullCycle") {
+    group = "pipeline"
+    description = "Run Full-Cycle Pipeline: code → PR → review → merge"
+    mainClass.set("org.example.fullcycle.FullCyclePipelineRunnerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    standardInput = System.`in`
+    standardOutput = System.out
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Переменные окружения из системы
+    environment("ANTHROPIC_API_KEY", System.getenv("ANTHROPIC_API_KEY") ?: "")
+    environment("GITHUB_TOKEN", System.getenv("GITHUB_TOKEN") ?: "")
+    environment("PROJECT_ROOT", System.getenv("PROJECT_ROOT") ?: System.getProperty("user.dir"))
+}

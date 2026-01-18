@@ -2,6 +2,7 @@ package org.example.app.commands
 
 import org.example.data.network.LlmClient
 import org.example.data.rag.RagService
+import org.example.fullcycle.FullCycleCommand
 
 class CommandRegistry(
     ragService: RagService? = null,
@@ -21,7 +22,8 @@ class CommandRegistry(
         HelpCommand(ragService, helpClient)
     ) + (if (mainLlmClient != null) listOf(
         ReviewPrCommand(mainLlmClient, ragService),  // Ревью PR
-        AutoPrCommand(mainLlmClient, ragService)     // Автоматический PR с ревью
+        AutoPrCommand(mainLlmClient, ragService),    // Автоматический PR с ревью
+        FullCycleCommand(mainLlmClient, ragService)  // Полный цикл: код → PR → review → merge
     ) else emptyList())
 
     suspend fun tryExecute(input: String, context: CommandContext): CommandResult {
