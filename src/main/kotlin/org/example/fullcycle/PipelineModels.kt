@@ -1,6 +1,7 @@
 package org.example.fullcycle
 
 import kotlinx.serialization.Serializable
+import org.example.utils.Version
 
 /**
  * Состояние пайплайна Full-Cycle
@@ -163,6 +164,8 @@ data class PipelineConfig(
 ) {
     companion object {
         const val VERSION = "2.0.0"
+        
+        fun getVersion(): String = Version.VERSION
     }
 }
 
