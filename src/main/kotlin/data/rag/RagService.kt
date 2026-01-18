@@ -1,5 +1,8 @@
+```kotlin
 package org.example.data.rag
 
+import kotlinx.coroutines.runBlocking
+import org.slf4j.LoggerFactory
 import java.io.File
 
 /**
@@ -53,6 +56,7 @@ class RagService(
         private const val META_LAST_INDEX_TIME = "last_index_time"
         private const val META_INDEXED_FILES_COUNT = "indexed_files_count"
         private const val META_TOTAL_CHUNKS = "total_chunks"
+        private val logger = LoggerFactory.getLogger(RagService::class.java)
     }
 
     /**
@@ -66,6 +70,36 @@ class RagService(
             return ReadinessResult.ModelNotFound(EMBEDDING_MODEL)
         }
         return ReadinessResult.Ready
+    }
+
+    /**
+     * Индексация проекта при старте приложения.
+     */
+    fun indexProject() {
+        runBlocking {
+            logger.info("Начинаем индексацию проекта при старте приложения...")
+            
+            val result = indexProjectFiles(forceReindex = false) { status ->
+                if (status.currentFile != null) {
+                    logger.debug("Индексируем файл: ${status.currentFile} (${status.processedFiles}/${status.totalFiles})")
+                }
+            }
+            
+            when (result) {
+                is IndexingResult.Success -> {
+                    logger.info("Индексация проекта завершена успешно. " +
+                               "Обработано файлов: ${result.filesProcessed}, " +
+                               "пропущено: ${result.filesSkipped}, " +
+                               "создано чанков: ${result.chunksCreated}")
+                }
+                is IndexingResult.Error -> {
+                    logger.warn("Ошибка при индексации проекта: ${result.message}")
+                }
+                is IndexingResult.NotReady -> {
+                    logger.warn("Система не готова для индексации: ${result.readinessResult}")
+                }
+            }
+        }
     }
 
     /**
@@ -271,196 +305,89 @@ class RagService(
     ): RagContext {
         // Генерируем эмбеддинг запроса
         val queryEmbedding = embeddingClient.embed(query)
-
-        // Ищем похожие чанки
+        
+        // Ищем похожие документы
         val results = vectorStore.search(queryEmbedding, topK, minSimilarity)
-
-        // Формируем контекст для LLM
-        val formattedContext = formatContextForLlm(results)
-
-        return RagContext(query, results, formattedContext)
-    }
-
-    /**
-     * Поиск без генерации эмбеддинга (использует уже готовый индекс).
-     * Быстрый вариант если Ollama недоступна, но индекс уже создан.
-     */
-    fun searchOffline(
-        queryEmbedding: FloatArray,
-        topK: Int = 5,
-        minSimilarity: Float = 0.3f
-    ): List<SearchResult> {
-        return vectorStore.search(queryEmbedding, topK, minSimilarity)
-    }
-
-    /**
-     * Поиск с реранкингом и фильтрацией.
-     * Двухэтапный процесс:
-     * 1. Первичный поиск по cosine similarity (широкий охват)
-     * 2. Реранкинг и фильтрация по порогу (точность)
-     */
-    suspend fun searchWithReranking(
-        query: String,
-        topK: Int = 5,
-        initialTopK: Int = 10,
-        minSimilarity: Float = 0.25f,
-        rerankerConfig: RerankerConfig = RerankerConfig()
-    ): RagContextWithReranking {
-        // Этап 1: Широкий первичный поиск
-        val queryEmbedding = embeddingClient.embed(query)
-        val initialResults = vectorStore.search(queryEmbedding, initialTopK, minSimilarity)
-
-        // Если реранкер не настроен, возвращаем без реранкинга
-        if (rerankerService == null) {
-            return RagContextWithReranking(
-                query = query,
-                originalResults = initialResults,
-                rerankedResults = emptyList(),
-                finalResults = initialResults.take(topK),
-                formattedContext = formatContextForLlm(initialResults.take(topK)),
-                wasReranked = false,
-                filteredCount = 0
-            )
-        }
-
-        // Этап 2: Реранкинг
-        val rerankedResults = rerankerService.rerank(query, initialResults, rerankerConfig)
-
-        // Фильтрация по порогу и ограничение topK
-        val filteredResults = rerankerService.filterByThreshold(rerankedResults, rerankerConfig.threshold)
-        val finalResults = filteredResults.take(topK).map { it.original }
-
-        return RagContextWithReranking(
+        
+        // Форматируем контекст
+        val formattedContext = formatContext(results)
+        
+        return RagContext(
             query = query,
-            originalResults = initialResults,
-            rerankedResults = rerankedResults,
-            finalResults = finalResults,
-            formattedContext = formatContextForReranked(filteredResults.take(topK)),
-            wasReranked = true,
-            filteredCount = rerankedResults.size - filteredResults.size
+            results = results,
+            formattedContext = formattedContext
         )
     }
 
     /**
-     * Сравнение результатов с реранкингом и без.
-     * Полезно для демонстрации эффективности реранкинга.
+     * Поиск с реранкингом.
      */
-    suspend fun compareResults(
+    suspend fun searchWithReranking(
         query: String,
         topK: Int = 5,
-        rerankerConfig: RerankerConfig = RerankerConfig()
-    ): ComparisonResult? {
-        if (rerankerService == null) return null
-
+        minSimilarity: Float = 0.3f,
+        rerankTopK: Int = 3,
+        rerankThreshold: Float = 0.5f
+    ): RagContextWithReranking {
+        // Генерируем эмбеддинг запроса
         val queryEmbedding = embeddingClient.embed(query)
-        val results = vectorStore.search(queryEmbedding, rerankerConfig.maxCandidates, 0.25f)
+        
+        // Ищем похожие документы (больше чем нужно для реранкинга)
+        val originalResults = vectorStore.search(queryEmbedding, topK * 2, minSimilarity)
+        
+        var rerankedResults = emptyList<RerankedResult>()
+        var finalResults = originalResults.take(topK)
+        var wasReranked = false
+        var filteredCount = 0
+        
+        // Применяем реранкинг если доступен
+        if (rerankerService != null && originalResults.isNotEmpty()) {
+            rerankedResults = rerankerService.rerank(query, originalResults)
+            
+            // Фильтруем по порогу и берём топ-K
+            val filtered = rerankedResults.filter { it.score >= rerankThreshold }
+            finalResults = filtered.take(rerankTopK).map { it.searchResult }
+            
+            wasReranked = true
+            filteredCount = rerankedResults.size - filtered.size
+        }
+        
+        // Форматируем контекст
+        val formattedContext = formatContext(finalResults)
+        
+        return RagContextWithReranking(
+            query = query,
+            originalResults = originalResults,
+            rerankedResults = rerankedResults,
+            finalResults = finalResults,
+            formattedContext = formattedContext,
+            wasReranked = wasReranked,
+            filteredCount = filteredCount
+        )
+    }
 
-        return rerankerService.compare(query, results, rerankerConfig)
+    /**
+     * Форматирование результатов поиска в контекст для LLM.
+     */
+    private fun formatContext(results: List<SearchResult>): String {
+        if (results.isEmpty()) return ""
+        
+        return buildString {
+            appendLine("Ниже представлена информация из локальной базы документов.")
+            appendLine("ВАЖНО: При использовании этой информации укажи источник в формате [RAG: имя_файла]")
+            appendLine()
+            
+            results.forEachIndexed { index, result ->
+                appendLine("<document source=\"${result.fileName}\" relevance=\"${(result.similarity * 100).toInt()}%\">")
+                appendLine(result.content.trim())
+                appendLine("</document>")
+                if (index < results.size - 1) appendLine()
+            }
+        }
     }
 
     /**
      * Получить статистику индекса.
      */
     fun getIndexStats(): IndexStats {
-        val chunkCount = vectorStore.getChunkCount()
-        val files = vectorStore.getIndexedFiles()
-        val lastIndexTime = vectorStore.getMetadata(META_LAST_INDEX_TIME)?.toLongOrNull()
-
-        return IndexStats(
-            totalChunks = chunkCount,
-            indexedFiles = files,
-            lastIndexTime = lastIndexTime
-        )
-    }
-
-    /**
-     * Проверка доступности реранкера.
-     */
-    fun hasReranker(): Boolean = rerankerService != null
-
-    /**
-     * Форматирование реранкнутых результатов в контекст для LLM.
-     * Использует XML-теги для чёткой разметки источников.
-     */
-    private fun formatContextForReranked(results: List<RerankedResult>): String {
-        if (results.isEmpty()) {
-            return ""
-        }
-
-        val sb = StringBuilder()
-        sb.appendLine("<rag_context>")
-        sb.appendLine("Ниже представлена информация из локальной базы документов.")
-        sb.appendLine("ВАЖНО: При использовании этой информации укажи источник в формате [RAG: имя_файла]")
-        sb.appendLine()
-
-        results.forEachIndexed { index, result ->
-            val rerankedScore = "%.0f%%".format(result.rerankedScore * 100)
-            sb.appendLine("<document source=\"${result.original.chunk.sourceFile}\" relevance=\"$rerankedScore\">")
-            sb.appendLine(result.original.chunk.content.trim())
-            sb.appendLine("</document>")
-            sb.appendLine()
-        }
-
-        sb.appendLine("</rag_context>")
-        return sb.toString()
-    }
-
-    /**
-     * Форматирование результатов поиска в контекст для LLM.
-     * Использует XML-теги для чёткой разметки источников.
-     */
-    private fun formatContextForLlm(results: List<SearchResult>): String {
-        if (results.isEmpty()) {
-            return ""
-        }
-
-        val sb = StringBuilder()
-        sb.appendLine("<rag_context>")
-        sb.appendLine("Ниже представлена информация из локальной базы документов.")
-        sb.appendLine("ВАЖНО: При использовании этой информации укажи источник в формате [RAG: имя_файла]")
-        sb.appendLine()
-
-        results.forEachIndexed { index, result ->
-            val similarity = "%.0f%%".format(result.similarity * 100)
-            sb.appendLine("<document source=\"${result.chunk.sourceFile}\" relevance=\"$similarity\">")
-            sb.appendLine(result.chunk.content.trim())
-            sb.appendLine("</document>")
-            sb.appendLine()
-        }
-
-        sb.appendLine("</rag_context>")
-        return sb.toString()
-    }
-}
-
-/**
- * Результат проверки готовности.
- */
-sealed class ReadinessResult {
-    data object Ready : ReadinessResult()
-    data object OllamaNotRunning : ReadinessResult()
-    data class ModelNotFound(val model: String) : ReadinessResult()
-}
-
-/**
- * Результат индексации.
- */
-sealed class IndexingResult {
-    data class Success(
-        val filesProcessed: Int,
-        val filesSkipped: Int,
-        val chunksCreated: Int
-    ) : IndexingResult()
-
-    data class NotReady(val reason: ReadinessResult) : IndexingResult()
-    data class Error(val message: String) : IndexingResult()
-}
-
-/**
- * Статистика индекса.
- */
-data class IndexStats(
-    val totalChunks: Long,
-    val indexedFiles: List<String>,
-    val lastIndexTime: Long?
-)
+        val lastIndexTime = vectorStore.getMetadata

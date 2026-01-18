@@ -41,6 +41,17 @@ fun main() = runBlocking {
         // Инициализация RAG
         val ragService = initializeRag(client, json)
 
+        // Автоматическое индексирование проекта при запуске
+        println("Автоматическое индексирование проекта...")
+        ragService.indexProject()
+        val stats = ragService.getIndexStats()
+        if (stats.totalChunks > 0) {
+            println("Проект проиндексирован: ${stats.totalChunks} чанков из ${stats.indexedFiles.size} файлов")
+        } else {
+            println("Индексирование завершено (файлы не найдены)")
+        }
+        println()
+
         try {
             val useCases = AppInitializer.buildUseCases(
                 client, json, anthropicKey, null,
@@ -99,15 +110,8 @@ private fun initializeRag(
         rerankerService = rerankerService
     )
 
-    // Показываем статус RAG
-    val stats = ragService.getIndexStats()
-    if (stats.totalChunks > 0) {
-        println("RAG инициализирован: ${stats.totalChunks} чанков из ${stats.indexedFiles.size} файлов")
-        println("  Реранкинг: включён (методы: cross, llm, keyword)")
-    } else {
-        println("RAG инициализирован (индекс пуст, используйте /rag index)")
-        println("  Реранкинг: доступен")
-    }
+    println("RAG инициализирован")
+    println("  Реранкинг: включён (методы: cross, llm, keyword)")
 
     return ragService
 }

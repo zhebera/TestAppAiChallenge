@@ -1,6 +1,7 @@
 package org.example.app
 
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
 import org.example.data.mcp.McpClient
@@ -11,6 +12,7 @@ import org.example.data.network.HaikuSummaryClient
 import org.example.data.network.SummaryClient
 import org.example.data.network.ToolAwareClient
 import org.example.data.repository.ChatRepositoryImpl
+import org.example.data.rag.RagService
 import org.example.domain.usecase.CompressHistoryUseCase
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
@@ -100,6 +102,9 @@ object AppInitializer {
             model = AppConfig.CLAUDE_SONNET_MODEL
         )
 
+        // Автоматическая индексация проекта при запуске
+        initializeRag()
+
         return UseCases(
             sendMessage = SendMessageUseCase(chatRepository),
             compressHistory = compressHistory,
@@ -107,5 +112,18 @@ object AppInitializer {
             mainClient = mainClient,
             pipelineClient = pipelineClient
         )
+    }
+
+    private fun initializeRag() {
+        try {
+            println("Инициализация RAG индекса...")
+            runBlocking {
+                RagService.indexProject()
+            }
+            println("RAG индекс успешно инициализирован")
+        } catch (e: Exception) {
+            println("Ошибка при инициализации RAG индекса: ${e.message}")
+            println("Приложение продолжит работу без RAG функциональности")
+        }
     }
 }
