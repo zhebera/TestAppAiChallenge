@@ -418,10 +418,19 @@ class FullCyclePipelineService(
                     if (file.exists()) {
                         val oldContent = file.readText()
                         val newContent = modifyFileContent(taskDescription, plannedChange, oldContent, ragContext)
-                        file.writeText(newContent)
 
+                        // Защита: не допускаем резкого уменьшения файла (возможная ошибка LLM)
                         val oldLines = oldContent.lines().size
                         val newLines = newContent.lines().size
+                        val sizeRatio = if (oldLines > 0) newLines.toDouble() / oldLines else 1.0
+
+                        if (oldLines > 50 && sizeRatio < 0.5) {
+                            progress("      ⚠ Пропущен: новый контент ($newLines строк) слишком мал по сравнению с оригиналом ($oldLines строк)")
+                            progress("      ⚠ Это может быть ошибкой LLM. Файл не изменён.")
+                            continue
+                        }
+
+                        file.writeText(newContent)
                         changes.add(FileChange(
                             plannedChange.filePath,
                             maxOf(0, newLines - oldLines),
@@ -601,6 +610,16 @@ class FullCyclePipelineService(
             val newContent = cleanCodeResponse(response)
 
             if (newContent.isNotBlank() && newContent != currentContent) {
+                // Защита: не допускаем резкого уменьшения файла
+                val oldLines = currentContent.lines().size
+                val newLines = newContent.lines().size
+                val sizeRatio = if (oldLines > 0) newLines.toDouble() / oldLines else 1.0
+
+                if (oldLines > 50 && sizeRatio < 0.5) {
+                    progress("      ⚠ Review fix пропущен для $filePath: размер уменьшился с $oldLines до $newLines строк")
+                    continue
+                }
+
                 file.writeText(newContent)
             }
         }
