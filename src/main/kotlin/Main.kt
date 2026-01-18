@@ -14,9 +14,13 @@ import org.example.data.rag.RagService
 import org.example.data.rag.RerankerService
 import org.example.data.rag.VectorStore
 import org.example.presentation.ConsoleInput
+import org.example.utils.BuildInfo
 import java.io.File
 
 fun main() = runBlocking {
+    println("Build time: ${BuildInfo.BUILD_TIME}")
+    println()
+    
     DatabaseConfig.init()
     val memoryRepository = MemoryRepository()
 
