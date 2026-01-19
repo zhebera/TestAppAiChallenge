@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.example.app.AppConfig
 import org.example.app.AppInitializer
 import org.example.app.ChatLoop
+import org.example.data.api.OllamaClient
 import org.example.data.mcp.McpClientFactory
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.DatabaseConfig
@@ -14,20 +15,30 @@ import org.example.data.rag.RagService
 import org.example.data.rag.RerankerService
 import org.example.data.rag.VectorStore
 import org.example.presentation.ConsoleInput
+import org.example.presentation.LlmProviderSelector
 import org.example.utils.BuildInfo
 import java.io.File
 
 fun main() = runBlocking {
     println("Build time: ${BuildInfo.BUILD_TIME}")
     println()
-    
+
     DatabaseConfig.init()
     val memoryRepository = MemoryRepository()
 
     ConsoleInput().use { console ->
-        val anthropicKey = AppInitializer.resolveApiKey(
-            console, "ANTHROPIC_API_KEY", "Anthropic"
-        ) ?: return@runBlocking
+        // Interactive LLM provider selection
+        val selectedClient = LlmProviderSelector.selectProvider()
+        val providerName = LlmProviderSelector.getProviderName(selectedClient)
+
+        // For Ollama, API key is optional
+        val anthropicKey = if (selectedClient is OllamaClient) {
+            System.getenv("ANTHROPIC_API_KEY")  // Optional for Ollama
+        } else {
+            AppInitializer.resolveApiKey(
+                console, "ANTHROPIC_API_KEY", "Anthropic"
+            ) ?: return@runBlocking
+        }
 
         val json = AppConfig.buildJson()
         val client = AppConfig.buildHttpClient(json)
@@ -42,16 +53,24 @@ fun main() = runBlocking {
         val ragService = initializeRag(client, json)
 
         try {
-            val useCases = AppInitializer.buildUseCases(
-                client, json, anthropicKey, null,
-                multiMcpClient = multiMcpClient
-            )
-
-            // Показываем какая модель используется
-            if (multiMcpClient?.isConnected == true) {
-                println("Модель: ${AppConfig.CLAUDE_HAIKU_MODEL} (оптимизирована для MCP)")
+            val useCases = if (selectedClient is OllamaClient) {
+                // For Ollama: use selected client for all operations
+                AppInitializer.buildUseCasesWithCustomClient(
+                    selectedClient,
+                    multiMcpClient = multiMcpClient
+                )
             } else {
-                println("Модель: ${AppConfig.CLAUDE_SONNET_MODEL}")
+                // For Claude: use existing logic
+                AppInitializer.buildUseCases(
+                    client, json, anthropicKey!!, null,
+                    multiMcpClient = multiMcpClient
+                )
+            }
+
+            // Show selected LLM provider
+            println("Active LLM: $providerName")
+            if (multiMcpClient?.isConnected == true) {
+                println("MCP servers: connected")
             }
             println()
 

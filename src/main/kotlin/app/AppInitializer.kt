@@ -8,6 +8,7 @@ import org.example.data.mcp.MultiMcpClient
 import org.example.data.mcp.ToolHandler
 import org.example.data.network.LlmClient
 import org.example.data.network.HaikuSummaryClient
+import org.example.data.network.SimpleSummaryClient
 import org.example.data.network.SummaryClient
 import org.example.data.network.ToolAwareClient
 import org.example.data.repository.ChatRepositoryImpl
@@ -106,6 +107,43 @@ object AppInitializer {
             helpClient = helpClient,
             mainClient = mainClient,
             pipelineClient = pipelineClient
+        )
+    }
+
+    /**
+     * Build use cases with a custom LLM client (e.g., Ollama)
+     * Uses the same client for all operations
+     */
+    fun buildUseCasesWithCustomClient(
+        customClient: LlmClient,
+        mcpClient: McpClient? = null,
+        multiMcpClient: MultiMcpClient? = null
+    ): UseCases {
+        val toolHandler = ToolHandler(mcpClient, multiMcpClient)
+
+        // Use custom client for main operations
+        val mainClient: LlmClient = if (mcpClient != null || multiMcpClient != null) {
+            // Wrap with ToolAwareClient if MCP is present
+            // Note: This may not work optimally with Ollama as it's designed for Claude
+            customClient  // For MVP, use custom client directly
+        } else {
+            customClient
+        }
+
+        val clients: List<LlmClient> = listOf(mainClient)
+        val chatRepository = ChatRepositoryImpl(clients = clients)
+
+        // For Ollama: use simple summary client (no LLM calls)
+        val compressHistory = CompressHistoryUseCase(
+            summaryClient = SimpleSummaryClient()
+        )
+
+        return UseCases(
+            sendMessage = SendMessageUseCase(chatRepository),
+            compressHistory = compressHistory,
+            helpClient = customClient,      // Use same client for help
+            mainClient = customClient,      // Use same client for main operations
+            pipelineClient = customClient   // Use same client for pipeline
         )
     }
 }
