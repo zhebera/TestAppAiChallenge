@@ -8,6 +8,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import org.example.data.api.AnthropicClient
 import org.example.data.api.OllamaClient
+import org.example.data.api.VpsLlmClient
 import org.example.data.network.LlmClient
 import org.slf4j.LoggerFactory
 
@@ -29,12 +30,14 @@ object LlmProviderSelector {
         println("\nSelect LLM provider:")
         println("1) Claude API (cloud, high quality)")
         println("2) Ollama (local, private)")
+        println("3) VPS LLM (remote server, qwen2.5)")
         print("\nYour choice [1]: ")
 
         val choice = readlnOrNull()?.trim() ?: "1"
 
         return when (choice) {
             "2" -> setupOllama()
+            "3" -> setupVps()
             "1", "" -> setupClaude()
             else -> {
                 println("Invalid choice. Using Claude API.")
@@ -70,6 +73,37 @@ object LlmProviderSelector {
                 return client
             } else {
                 showOllamaSetupInstructions()
+                print("Press Enter to retry, or type 'back' to choose different LLM: ")
+                val input = readlnOrNull()?.trim()?.lowercase()
+                if (input == "back") {
+                    return selectProvider()
+                }
+            }
+        }
+    }
+
+    /**
+     * Setup VPS LLM client with health checks
+     */
+    private suspend fun setupVps(): LlmClient {
+        val vpsHttp = createVpsHttpClient()
+        val json = createJson()
+        val serverUrl = System.getenv("VPS_LLM_URL") ?: VpsLlmClient.DEFAULT_SERVER_URL
+        val client = VpsLlmClient(vpsHttp, json, serverUrl)
+
+        // Health check loop with retry
+        while (true) {
+            println("\nConnecting to VPS LLM server at $serverUrl...")
+
+            if (client.checkHealth()) {
+                val serverInfo = client.getServerInfo()
+                println("✓ VPS LLM server is available")
+                println("  Model: ${serverInfo?.defaultModel ?: "unknown"}")
+                println("  Available models: ${serverInfo?.availableModels?.joinToString(", ") ?: "unknown"}")
+                println("\nUsing: VPS LLM (${client.model})\n")
+                return client
+            } else {
+                showVpsSetupInstructions(serverUrl)
                 print("Press Enter to retry, or type 'back' to choose different LLM: ")
                 val input = readlnOrNull()?.trim()?.lowercase()
                 if (input == "back") {
@@ -136,6 +170,21 @@ object LlmProviderSelector {
     }
 
     /**
+     * Create HTTP client configured for VPS LLM (120s timeout for inference)
+     */
+    private fun createVpsHttpClient(): HttpClient {
+        return HttpClient(CIO) {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 120_000L  // 120 seconds for slow inference
+                connectTimeoutMillis = 10_000L   // 10 seconds
+            }
+            install(ContentNegotiation) {
+                json(createJson())
+            }
+        }
+    }
+
+    /**
      * Create Claude client instance
      */
     private fun createClaudeClient(apiKey: String): LlmClient {
@@ -182,12 +231,29 @@ object LlmProviderSelector {
     }
 
     /**
+     * Display VPS connection instructions
+     */
+    private fun showVpsSetupInstructions(serverUrl: String) {
+        println("\n✗ Error: Cannot connect to VPS LLM server at $serverUrl")
+        println("\nPossible issues:")
+        println("  1. VPS server is not running")
+        println("  2. Firewall is blocking port 8081")
+        println("  3. Network connectivity issues")
+        println("\nTo check VPS server status:")
+        println("  curl $serverUrl/api/v1/health")
+        println("\nOr set a different server URL:")
+        println("  export VPS_LLM_URL=http://your-server:8081")
+        println()
+    }
+
+    /**
      * Get provider name for display
      */
     fun getProviderName(client: LlmClient): String {
         return when (client) {
             is OllamaClient -> "Ollama | ${client.model}"
             is AnthropicClient -> "Claude API | ${client.model}"
+            is VpsLlmClient -> "VPS LLM | ${client.model}"
             else -> "Unknown | ${client.model}"
         }
     }

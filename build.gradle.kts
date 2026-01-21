@@ -202,3 +202,20 @@ tasks.register<JavaExec>("runFullCycle") {
     environment("GITHUB_TOKEN", System.getenv("GITHUB_TOKEN") ?: "")
     environment("PROJECT_ROOT", System.getenv("PROJECT_ROOT") ?: System.getProperty("user.dir"))
 }
+
+// Task to run Local LLM Chat Server
+// Usage: ./gradlew runLocalLlmServer
+// Environment variables:
+//   LOCAL_LLM_PORT - server port (default: 8081)
+//   OLLAMA_HOST - Ollama host (default: http://localhost:11434)
+//   OLLAMA_MODEL - default model (default: qwen2.5:7b)
+tasks.register<JavaExec>("runLocalLlmServer") {
+    group = "llm"
+    description = "Run Local LLM Chat Server (REST API for Ollama)"
+    mainClass.set("org.example.localllm.LocalLlmServerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    environment("LOCAL_LLM_PORT", System.getenv("LOCAL_LLM_PORT") ?: "8081")
+    environment("OLLAMA_HOST", System.getenv("OLLAMA_HOST") ?: "http://localhost:11434")
+    environment("OLLAMA_MODEL", System.getenv("OLLAMA_MODEL") ?: "qwen2.5:7b")
+}
