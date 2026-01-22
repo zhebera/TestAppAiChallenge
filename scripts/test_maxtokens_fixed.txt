@@ -1,0 +1,4 @@
+3
+/maxTokens 30
+Расскажи историю Python
+exit

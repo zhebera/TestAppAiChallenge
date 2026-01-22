@@ -5,6 +5,7 @@ import org.example.app.AppConfig
 import org.example.app.AppInitializer
 import org.example.app.ChatLoop
 import org.example.data.api.OllamaClient
+import org.example.data.api.VpsLlmClient
 import org.example.data.mcp.McpClientFactory
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.DatabaseConfig
@@ -53,8 +54,8 @@ fun main() = runBlocking {
         val ragService = initializeRag(client, json)
 
         try {
-            val useCases = if (selectedClient is OllamaClient) {
-                // For Ollama: use selected client for all operations
+            val useCases = if (selectedClient is OllamaClient || selectedClient is VpsLlmClient) {
+                // For Ollama/VPS: use selected client for all operations
                 AppInitializer.buildUseCasesWithCustomClient(
                     selectedClient,
                     multiMcpClient = multiMcpClient

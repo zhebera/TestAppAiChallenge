@@ -17,6 +17,7 @@ import org.example.data.dto.LlmRequest
 import org.example.data.dto.LlmResponse
 import org.example.data.network.LlmClient
 import org.example.data.network.StreamEvent
+import org.example.utils.VpsLlmConfig
 import org.slf4j.LoggerFactory
 
 /**
@@ -24,12 +25,25 @@ import org.slf4j.LoggerFactory
  *
  * Подключается к Local LLM Chat Server, развёрнутому на VPS.
  * Использует REST API для отправки сообщений и получения ответов.
+ *
+ * ОПТИМИЗАЦИЯ ДЛЯ МОДЕЛИ qwen2.5:0.5b:
+ * - Маленькая модель (0.5B параметров) работает лучше с:
+ *   • Низкой температурой (0.3) для точных ответов
+ *   • Ограниченным max_tokens для кратких ответов
+ *   • Короткими и чёткими системными промптами
+ *
+ * Рекомендуемые параметры:
+ * - temperature: 0.1-0.3 для точности, 0.7-0.8 для креативности
+ * - max_tokens: 100-200 для кратких ответов, 300-400 для длинных
+ * - system_prompt: использовать VPS_SYSTEM_PROMPT_* из SystemPrompts.kt
  */
 class VpsLlmClient(
     private val http: HttpClient,
     private val json: Json,
     private val serverUrl: String = System.getenv("VPS_LLM_URL") ?: DEFAULT_SERVER_URL,
-    override val model: String = DEFAULT_MODEL
+    override val model: String = DEFAULT_MODEL,
+    private val defaultTemperature: Double = VpsLlmConfig.OPTIMAL_TEMPERATURE,
+    private val defaultMaxTokens: Int = VpsLlmConfig.MAX_TOKENS_MEDIUM
 ) : LlmClient {
 
     private val logger = LoggerFactory.getLogger(VpsLlmClient::class.java)
@@ -69,13 +83,19 @@ class VpsLlmClient(
             )
         }
 
+        // Используем оптимальные параметры по умолчанию для маленькой модели
+        val effectiveTemperature = request.temperature ?: defaultTemperature
+        val effectiveMaxTokens = if (request.maxTokens > 0) request.maxTokens else defaultMaxTokens
+
+        logger.debug("VPS LLM params: temperature=$effectiveTemperature, maxTokens=$effectiveMaxTokens")
+
         val chatRequest = VpsChatRequest(
             message = userMessage.content,
             conversationId = currentConversationId,
             history = if (history.isNotEmpty()) history else null,
             systemPrompt = request.systemPrompt,
-            temperature = request.temperature,
-            maxTokens = request.maxTokens,
+            temperature = effectiveTemperature,
+            maxTokens = effectiveMaxTokens,
             model = model,
             stream = false
         )

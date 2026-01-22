@@ -1,0 +1,5 @@
+3
+/changePrompt
+6
+Напиши функцию факториала на Python
+exit
