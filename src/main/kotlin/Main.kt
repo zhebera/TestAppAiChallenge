@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.example.app.AppConfig
 import org.example.app.AppInitializer
 import org.example.app.ChatLoop
+import org.example.data.analysis.DataAnalysisService
 import org.example.data.api.OllamaClient
 import org.example.data.api.VpsLlmClient
 import org.example.data.mcp.McpClientFactory
@@ -75,13 +76,21 @@ fun main() = runBlocking {
             }
             println()
 
+            // Create OllamaClient and DataAnalysisService for data analysis mode
+            val ollamaClientForAnalysis = if (selectedClient is OllamaClient) selectedClient else null
+            val analysisService = if (ollamaClientForAnalysis != null) {
+                AppInitializer.createAnalysisService()
+            } else null
+
             ChatLoop(
                 console = console,
                 useCases = useCases,
                 memoryRepository = memoryRepository,
                 ragService = ragService,
                 multiMcpClient = multiMcpClient,
-                classpath = classpath
+                classpath = classpath,
+                ollamaClient = ollamaClientForAnalysis,
+                analysisService = analysisService
             ).run()
         } finally {
             multiMcpClient?.disconnectAll()

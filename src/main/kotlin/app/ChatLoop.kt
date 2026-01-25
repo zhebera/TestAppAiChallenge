@@ -1,9 +1,15 @@
 package org.example.app
 
+import kotlinx.serialization.json.JsonPrimitive
 import org.example.app.commands.ChatState
 import org.example.app.commands.CommandContext
 import org.example.app.commands.CommandRegistry
 import org.example.app.commands.CommandResult
+import org.example.data.analysis.DataAnalysisService
+import org.example.data.api.OllamaClient
+import org.example.data.api.OllamaFunctionDto
+import org.example.data.api.OllamaToolDto
+import org.example.data.dto.LlmRequest
 import org.example.data.mcp.MultiMcpClient
 import org.example.data.persistence.MemoryRepository
 import org.example.data.rag.RagService
@@ -15,6 +21,7 @@ import org.example.domain.models.ChatRole
 import org.example.domain.models.LlmAnswer
 import org.example.domain.models.LlmMessage
 import org.example.presentation.ConsoleInput
+import org.example.utils.SYSTEM_PROMPT_DATA_ANALYSIS
 import org.example.utils.SYSTEM_PROMPT_WITH_SOURCES
 
 class ChatLoop(
@@ -23,7 +30,9 @@ class ChatLoop(
     private val memoryRepository: MemoryRepository,
     private val ragService: RagService? = null,
     private val multiMcpClient: MultiMcpClient? = null,
-    private val classpath: String? = null
+    private val classpath: String? = null,
+    private val ollamaClient: OllamaClient? = null,
+    private val analysisService: DataAnalysisService? = null
 ) {
     private val commandRegistry = CommandRegistry(ragService, useCases.helpClient, useCases.mainClient, useCases.pipelineClient)
 
@@ -229,19 +238,127 @@ class ChatLoop(
         chatHistory.addMessage(ChatRole.USER, messageWithRag)
 
         try {
-            val conversationWithSystem = buildConversation(chatHistory, state.currentSystemPrompt)
-            val answer = sendAndCollectResponse(conversationWithSystem, state)
+            // Check if data analysis mode is active
+            if (state.currentSystemPrompt == SYSTEM_PROMPT_DATA_ANALYSIS &&
+                ollamaClient != null && analysisService != null) {
+                // Use tool calling for data analysis
+                processDataAnalysisRequest(messageWithRag, chatHistory, state)
+            } else {
+                // Standard flow
+                val conversationWithSystem = buildConversation(chatHistory, state.currentSystemPrompt)
+                val answer = sendAndCollectResponse(conversationWithSystem, state)
 
-            answer?.let {
-                ResponsePrinter.printResponse(it)
-                chatHistory.addMessage(ChatRole.ASSISTANT, it.message)
-                ResponsePrinter.printTokenStats(it, chatHistory)
+                answer?.let {
+                    ResponsePrinter.printResponse(it)
+                    chatHistory.addMessage(ChatRole.ASSISTANT, it.message)
+                    ResponsePrinter.printTokenStats(it, chatHistory)
+                }
             }
         } catch (t: Throwable) {
             chatHistory.removeLastMessage()
             println()
             println("Ошибка при запросе: ${t.message}")
             println("(Сообщение не сохранено в историю)")
+            println()
+        }
+    }
+
+    /**
+     * Process data analysis request with tool calling
+     */
+    private suspend fun processDataAnalysisRequest(
+        userMessage: String,
+        chatHistory: ChatHistory,
+        state: ChatState
+    ) {
+        val client = ollamaClient ?: return
+        val service = analysisService ?: return
+
+        // Build tool definitions
+        val tools = service.getToolDefinitions().map { tool ->
+            OllamaToolDto(
+                type = "function",
+                function = OllamaFunctionDto(
+                    name = tool.name,
+                    description = tool.description,
+                    parameters = tool.parameters
+                )
+            )
+        }
+
+        // Build conversation
+        val messages = chatHistory.messages.map { msg ->
+            LlmMessage(msg.role, msg.content)
+        }
+
+        print("...")
+        System.out.flush()
+
+        var request = LlmRequest(
+            model = client.model,
+            systemPrompt = state.currentSystemPrompt,
+            messages = messages
+        )
+
+        // Tool calling loop (max 5 iterations to prevent infinite loops)
+        var iterations = 0
+        val maxIterations = 5
+        val conversationMessages = messages.toMutableList()
+        var finalResponse = ""
+
+        while (iterations < maxIterations) {
+            iterations++
+
+            val response = client.sendWithTools(request, tools)
+
+            // Check for tool calls
+            val toolCalls = response.message.toolCalls
+            if (toolCalls.isNullOrEmpty()) {
+                // No tool calls - we have the final response
+                finalResponse = response.message.content
+                break
+            }
+
+            // Execute tool calls
+            print("\r[Выполняю инструменты...]")
+            System.out.flush()
+
+            for (toolCall in toolCalls) {
+                val toolName = toolCall.function.name
+                val args = toolCall.function.arguments.entries.associate { (k, v) ->
+                    k to when (v) {
+                        is JsonPrimitive -> if (v.isString) v.content else v.toString()
+                        else -> v.toString()
+                    }
+                }
+
+                println("\n  → $toolName(${args.values.firstOrNull() ?: ""})")
+
+                val result = service.handleToolCall(toolName, args)
+
+                // Add tool result to conversation
+                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, "Вызываю $toolName..."))
+                conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result"))
+            }
+
+            // Continue conversation with tool results
+            request = LlmRequest(
+                model = client.model,
+                systemPrompt = state.currentSystemPrompt,
+                messages = conversationMessages
+            )
+        }
+
+        print("\r")
+
+        if (finalResponse.isNotBlank()) {
+            println()
+            println(finalResponse)
+            println()
+            chatHistory.addMessage(ChatRole.ASSISTANT, finalResponse)
+        } else {
+            println()
+            println("Модель не вернула финальный ответ после $maxIterations итераций")
             println()
         }
     }
