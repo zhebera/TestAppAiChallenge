@@ -1,0 +1,17 @@
+{
+  "app": {
+    "name": "DemoApp",
+    "version": "1.2.3",
+    "environment": "production"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "pool_size": 10
+  },
+  "features": [
+    {"name": "dark_mode", "enabled": true, "users": 1500},
+    {"name": "beta_search", "enabled": false, "users": 0},
+    {"name": "notifications", "enabled": true, "users": 3200}
+  ]
+}

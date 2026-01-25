@@ -1,0 +1,10 @@
+2024-01-15 10:23:45.123 [main] ERROR com.app.UserService - NullPointerException: User not found
+2024-01-15 10:24:12.456 [http-1] WARN  com.app.Database - Slow query: SELECT * FROM users (took 2.5s)
+2024-01-15 10:25:00.789 [http-2] ERROR com.app.ApiClient - TimeoutException: Connection to api.service.com timed out
+2024-01-15 10:26:33.012 [main] ERROR com.app.OrderService - NullPointerException: Order items empty
+2024-01-15 10:27:00.345 [main] INFO  com.app.Application - Health check passed
+2024-01-15 10:28:15.678 [http-3] ERROR com.app.UserService - NullPointerException: User session expired
+2024-01-15 10:29:00.901 [http-1] ERROR com.app.PaymentService - IllegalStateException: Invalid payment state
+2024-01-15 10:30:22.234 [http-2] WARN  com.app.Cache - Cache miss for key: user_123
+2024-01-15 10:31:45.567 [main] ERROR com.app.Database - SQLException: Connection pool exhausted
+2024-01-15 10:32:00.890 [http-4] ERROR com.app.ApiClient - TimeoutException: Request timeout after 30s
