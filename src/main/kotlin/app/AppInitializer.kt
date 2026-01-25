@@ -15,6 +15,8 @@ import org.example.data.repository.ChatRepositoryImpl
 import org.example.domain.usecase.CompressHistoryUseCase
 import org.example.domain.usecase.SendMessageUseCase
 import org.example.presentation.ConsoleInput
+import org.example.data.analysis.DataAnalysisService
+import java.nio.file.Paths
 
 data class UseCases(
     val sendMessage: SendMessageUseCase,
@@ -145,5 +147,13 @@ object AppInitializer {
             mainClient = customClient,      // Use same client for main operations
             pipelineClient = customClient   // Use same client for pipeline
         )
+    }
+
+    /**
+     * Создаёт сервис анализа данных для текущей директории
+     */
+    fun createAnalysisService(): DataAnalysisService {
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        return DataAnalysisService(workingDir)
     }
 }
