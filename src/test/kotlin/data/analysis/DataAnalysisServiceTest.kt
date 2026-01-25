@@ -61,7 +61,7 @@ class DataAnalysisServiceTest {
     fun `getSystemPrompt returns analysis prompt`() {
         val prompt = service.getSystemPrompt()
 
-        assertContains(prompt, "analyze_file")
-        assertContains(prompt, "execute_kotlin")
+        assertContains(prompt, "аналитик")
+        assertContains(prompt, "kotlin")
     }
 }
