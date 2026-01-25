@@ -8,6 +8,7 @@ import org.example.utils.VPS_SYSTEM_PROMPT_CONCISE
 import org.example.utils.VPS_SYSTEM_PROMPT_CODE
 import org.example.utils.VPS_SYSTEM_PROMPT_QA
 import org.example.utils.VPS_SYSTEM_PROMPT_SOLVER
+import org.example.utils.SYSTEM_PROMPT_DATA_ANALYSIS
 
 class ChangePromptCommand : Command {
     override fun matches(input: String): Boolean =
@@ -29,7 +30,10 @@ class ChangePromptCommand : Command {
         println("7 - VPS: Вопрос-ответ")
         println("8 - VPS: Логика")
         println()
-        print("Ваш выбор (1-8): ")
+        println("=== Анализ данных (для qwen2.5:7b) ===")
+        println("9 - Анализ CSV/JSON/логов")
+        println()
+        print("Ваш выбор (1-9): ")
 
         val choice = context.console.readLine("")?.trim()
 
@@ -42,6 +46,7 @@ class ChangePromptCommand : Command {
             "6" -> VPS_SYSTEM_PROMPT_CODE
             "7" -> VPS_SYSTEM_PROMPT_QA
             "8" -> VPS_SYSTEM_PROMPT_SOLVER
+            "9" -> SYSTEM_PROMPT_DATA_ANALYSIS
             else -> {
                 println("Неизвестный выбор, оставляю прежний system prompt.")
                 context.state.currentSystemPrompt
@@ -57,6 +62,7 @@ class ChangePromptCommand : Command {
             VPS_SYSTEM_PROMPT_CODE -> "VPS: Программист"
             VPS_SYSTEM_PROMPT_QA -> "VPS: Вопрос-ответ"
             VPS_SYSTEM_PROMPT_SOLVER -> "VPS: Логика"
+            SYSTEM_PROMPT_DATA_ANALYSIS -> "Анализ данных"
             else -> ""
         }
 
@@ -67,6 +73,19 @@ class ChangePromptCommand : Command {
                 println("Рекомендуемые настройки для VPS:")
                 println("  /temperature 0.3  - для точных ответов")
                 println("  /maxTokens 150    - для кратких ответов")
+            }
+            if (role == "Анализ данных") {
+                println()
+                println("Режим анализа данных активирован!")
+                println("Доступные файлы в analysis_data/:")
+                println("  - sales_demo.csv  (продажи)")
+                println("  - app_errors.log  (логи ошибок)")
+                println("  - config.json     (конфигурация)")
+                println()
+                println("Примеры запросов:")
+                println("  • Какой продукт продаётся лучше всего в sales_demo.csv?")
+                println("  • Какая ошибка чаще всего в app_errors.log?")
+                println("  • Что в файле config.json?")
             }
             println()
         }
