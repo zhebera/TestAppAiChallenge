@@ -387,32 +387,62 @@ class ChatLoop(
 
     /**
      * Parse tool call from text content (for models that don't use native tool calling)
-     * Looks for JSON like: {"name": "analyze_file", "arguments": {"path": "file.csv"}}
+     * Supports multiple formats:
+     * 1. JSON: {"name": "analyze_file", "arguments": {"path": "file.csv"}}
+     * 2. Function call in code: analyze_file("file.csv")
+     * 3. Markdown code block with function call
      */
     private fun parseTextToolCall(content: String): Pair<String, Map<String, Any?>>? {
-        // Look for JSON object with "name" and "arguments" fields
+        // Try JSON format first: {"name": "...", "arguments": {...}}
         val jsonPattern = """\{[^{}]*"name"\s*:\s*"([^"]+)"[^{}]*"arguments"\s*:\s*(\{[^{}]*\})[^{}]*\}""".toRegex()
-        val match = jsonPattern.find(content) ?: return null
+        val jsonMatch = jsonPattern.find(content)
+        if (jsonMatch != null) {
+            return try {
+                val toolName = jsonMatch.groupValues[1]
+                val argsJson = jsonMatch.groupValues[2]
 
-        return try {
-            val toolName = match.groupValues[1]
-            val argsJson = match.groupValues[2]
+                val json = Json { ignoreUnknownKeys = true }
+                val argsObject = json.parseToJsonElement(argsJson).jsonObject
 
-            val json = Json { ignoreUnknownKeys = true }
-            val argsObject = json.parseToJsonElement(argsJson).jsonObject
-
-            val args = argsObject.entries.associate { (k, v) ->
-                k to when {
-                    v is JsonPrimitive && v.isString -> v.content
-                    v is JsonPrimitive -> v.toString()
-                    else -> v.toString()
+                val args = argsObject.entries.associate { (k, v) ->
+                    k to when {
+                        v is JsonPrimitive && v.isString -> v.content
+                        v is JsonPrimitive -> v.toString()
+                        else -> v.toString()
+                    }
                 }
+
+                Pair(toolName, args)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        // Try function call format: analyze_file("path") or execute_kotlin('''code''')
+        val funcPattern = """(analyze_file|execute_kotlin|format_result)\s*\(\s*["'`]([^"'`]+)["'`]\s*\)""".toRegex()
+        val funcMatch = funcPattern.find(content)
+        if (funcMatch != null) {
+            val toolName = funcMatch.groupValues[1]
+            val arg = funcMatch.groupValues[2]
+
+            val argName = when (toolName) {
+                "analyze_file" -> "path"
+                "execute_kotlin" -> "code"
+                "format_result" -> "data"
+                else -> "arg"
             }
 
-            Pair(toolName, args)
-        } catch (e: Exception) {
-            null
+            return Pair(toolName, mapOf(argName to arg))
         }
+
+        // Try triple-quoted code for execute_kotlin
+        val tripleQuotePattern = """execute_kotlin\s*\(\s*['"`]{3}([\s\S]*?)['"`]{3}\s*\)""".toRegex()
+        val tripleMatch = tripleQuotePattern.find(content)
+        if (tripleMatch != null) {
+            return Pair("execute_kotlin", mapOf("code" to tripleMatch.groupValues[1].trim()))
+        }
+
+        return null
     }
 
     private fun buildConversation(chatHistory: ChatHistory, systemPrompt: String): List<LlmMessage> {
