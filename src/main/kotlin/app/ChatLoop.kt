@@ -361,6 +361,18 @@ class ChatLoop(
 
                 conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, content))
                 conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result\n\nТеперь проанализируй эти данные и ответь на вопрос пользователя."))
+            } else if (looksLikeIncompleteToolCall(content)) {
+                // Model tried to call a tool but in wrong format - prompt to retry
+                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, content))
+                conversationMessages.add(LlmMessage(ChatRole.USER, """
+                    Ты пытался вызвать инструмент, но формат неверный.
+                    Используй ТОЧНО такой формат:
+                    {"name": "analyze_file", "arguments": {"path": "filename.csv"}}
+                    или
+                    {"name": "execute_kotlin", "arguments": {"code": "data.lines().size"}}
+
+                    Попробуй ещё раз.
+                """.trimIndent()))
             }
 
             // Continue conversation with tool results
@@ -387,18 +399,21 @@ class ChatLoop(
 
     /**
      * Parse tool call from text content (for models that don't use native tool calling)
-     * Supports multiple formats:
-     * 1. JSON: {"name": "analyze_file", "arguments": {"path": "file.csv"}}
-     * 2. Function call in code: analyze_file("file.csv")
-     * 3. Markdown code block with function call
+     * Supports multiple formats that qwen2.5 might output
      */
     private fun parseTextToolCall(content: String): Pair<String, Map<String, Any?>>? {
-        // Try JSON format first: {"name": "...", "arguments": {...}}
+        // Normalize common typos/variations in tool names
+        val normalizedContent = content
+            .replace("letonalyze_file", "analyze_file")
+            .replace("letexecute_kotlin", "execute_kotlin")
+            .replace("letformat_result", "format_result")
+
+        // Format 1: JSON {"name": "...", "arguments": {...}}
         val jsonPattern = """\{[^{}]*"name"\s*:\s*"([^"]+)"[^{}]*"arguments"\s*:\s*(\{[^{}]*\})[^{}]*\}""".toRegex()
-        val jsonMatch = jsonPattern.find(content)
+        val jsonMatch = jsonPattern.find(normalizedContent)
         if (jsonMatch != null) {
             return try {
-                val toolName = jsonMatch.groupValues[1]
+                val toolName = normalizeToolName(jsonMatch.groupValues[1])
                 val argsJson = jsonMatch.groupValues[2]
 
                 val json = Json { ignoreUnknownKeys = true }
@@ -418,11 +433,36 @@ class ChatLoop(
             }
         }
 
-        // Try function call format: analyze_file("path") or execute_kotlin('''code''')
-        val funcPattern = """(analyze_file|execute_kotlin|format_result)\s*\(\s*["'`]([^"'`]+)["'`]\s*\)""".toRegex()
-        val funcMatch = funcPattern.find(content)
+        // Format 2: tool_name, {"arg": "value"} (qwen format)
+        val commaJsonPattern = """(analyze_file|execute_kotlin|format_result)\s*,\s*(\{[^{}]+\})""".toRegex(RegexOption.IGNORE_CASE)
+        val commaMatch = commaJsonPattern.find(normalizedContent)
+        if (commaMatch != null) {
+            return try {
+                val toolName = normalizeToolName(commaMatch.groupValues[1])
+                val argsJson = commaMatch.groupValues[2]
+
+                val json = Json { ignoreUnknownKeys = true }
+                val argsObject = json.parseToJsonElement(argsJson).jsonObject
+
+                val args = argsObject.entries.associate { (k, v) ->
+                    k to when {
+                        v is JsonPrimitive && v.isString -> v.content
+                        v is JsonPrimitive -> v.toString()
+                        else -> v.toString()
+                    }
+                }
+
+                Pair(toolName, args)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        // Format 3: function call analyze_file("path")
+        val funcPattern = """(analyze_file|execute_kotlin|format_result)\s*\(\s*["'`]([^"'`]+)["'`]\s*\)""".toRegex(RegexOption.IGNORE_CASE)
+        val funcMatch = funcPattern.find(normalizedContent)
         if (funcMatch != null) {
-            val toolName = funcMatch.groupValues[1]
+            val toolName = normalizeToolName(funcMatch.groupValues[1])
             val arg = funcMatch.groupValues[2]
 
             val argName = when (toolName) {
@@ -435,14 +475,52 @@ class ChatLoop(
             return Pair(toolName, mapOf(argName to arg))
         }
 
-        // Try triple-quoted code for execute_kotlin
-        val tripleQuotePattern = """execute_kotlin\s*\(\s*['"`]{3}([\s\S]*?)['"`]{3}\s*\)""".toRegex()
-        val tripleMatch = tripleQuotePattern.find(content)
-        if (tripleMatch != null) {
-            return Pair("execute_kotlin", mapOf("code" to tripleMatch.groupValues[1].trim()))
+        // Format 4: execute_kotlin with multi-line code in parentheses
+        val multiLinePattern = """execute_kotlin\s*\(([\s\S]*?)\)(?:\s*$|\s*\n)""".toRegex(RegexOption.IGNORE_CASE)
+        val multiLineMatch = multiLinePattern.find(normalizedContent)
+        if (multiLineMatch != null) {
+            val code = multiLineMatch.groupValues[1]
+                .trim()
+                .removeSurrounding("\"")
+                .removeSurrounding("'")
+                .removeSurrounding("```kotlin", "```")
+                .removeSurrounding("```", "```")
+                .trim()
+            if (code.isNotBlank()) {
+                return Pair("execute_kotlin", mapOf("code" to code))
+            }
+        }
+
+        // Format 5: Look for file mentions with analyze intent
+        val fileMentionPattern = """(?:анализ|посмотр|открой|покажи|файл)[^\n]*?([\w\-_]+\.(csv|json|log|txt))""".toRegex(RegexOption.IGNORE_CASE)
+        val fileMatch = fileMentionPattern.find(normalizedContent)
+        if (fileMatch != null && normalizedContent.contains("analyze_file", ignoreCase = true)) {
+            return Pair("analyze_file", mapOf("path" to fileMatch.groupValues[1]))
         }
 
         return null
+    }
+
+    private fun normalizeToolName(name: String): String {
+        return when (name.lowercase()) {
+            "analyze_file", "analysefile", "analyzefile" -> "analyze_file"
+            "execute_kotlin", "executekotlin" -> "execute_kotlin"
+            "format_result", "formatresult" -> "format_result"
+            else -> name.lowercase()
+        }
+    }
+
+    /**
+     * Check if model tried to call a tool but in wrong format
+     */
+    private fun looksLikeIncompleteToolCall(content: String): Boolean {
+        val indicators = listOf(
+            "analyze_file", "execute_kotlin", "format_result",
+            "tool_call", "</tool_call>", "<tool_call>",
+            "Вызываю", "вызываю",
+            "letonalyze", "letexecute"
+        )
+        return indicators.any { content.contains(it, ignoreCase = true) }
     }
 
     private fun buildConversation(chatHistory: ChatHistory, systemPrompt: String): List<LlmMessage> {
