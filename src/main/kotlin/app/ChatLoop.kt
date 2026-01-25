@@ -1,6 +1,10 @@
 package org.example.app
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.example.app.commands.ChatState
 import org.example.app.commands.CommandContext
 import org.example.app.commands.CommandRegistry
@@ -310,12 +314,17 @@ class ChatLoop(
             iterations++
 
             val response = client.sendWithTools(request, tools)
+            val content = response.message.content
 
-            // Check for tool calls
+            // Check for structured tool calls first
             val toolCalls = response.message.toolCalls
-            if (toolCalls.isNullOrEmpty()) {
+
+            // Also check for text-based tool calls (qwen2.5 format)
+            val textToolCall = parseTextToolCall(content)
+
+            if (toolCalls.isNullOrEmpty() && textToolCall == null) {
                 // No tool calls - we have the final response
-                finalResponse = response.message.content
+                finalResponse = content
                 break
             }
 
@@ -323,22 +332,35 @@ class ChatLoop(
             print("\r[Выполняю инструменты...]")
             System.out.flush()
 
-            for (toolCall in toolCalls) {
-                val toolName = toolCall.function.name
-                val args = toolCall.function.arguments.entries.associate { (k, v) ->
-                    k to when (v) {
-                        is JsonPrimitive -> if (v.isString) v.content else v.toString()
-                        else -> v.toString()
+            // Handle structured tool calls
+            if (!toolCalls.isNullOrEmpty()) {
+                for (toolCall in toolCalls) {
+                    val toolName = toolCall.function.name
+                    val args = toolCall.function.arguments.entries.associate { (k, v) ->
+                        k to when (v) {
+                            is JsonPrimitive -> if (v.isString) v.content else v.toString()
+                            else -> v.toString()
+                        }
                     }
-                }
 
+                    println("\n  → $toolName(${args.values.firstOrNull() ?: ""})")
+
+                    val result = service.handleToolCall(toolName, args)
+
+                    conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, "Вызываю $toolName..."))
+                    conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result"))
+                }
+            }
+
+            // Handle text-based tool calls (for models that don't use native tool calling)
+            if (textToolCall != null) {
+                val (toolName, args) = textToolCall
                 println("\n  → $toolName(${args.values.firstOrNull() ?: ""})")
 
                 val result = service.handleToolCall(toolName, args)
 
-                // Add tool result to conversation
-                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, "Вызываю $toolName..."))
-                conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result"))
+                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, content))
+                conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result\n\nТеперь проанализируй эти данные и ответь на вопрос пользователя."))
             }
 
             // Continue conversation with tool results
@@ -360,6 +382,36 @@ class ChatLoop(
             println()
             println("Модель не вернула финальный ответ после $maxIterations итераций")
             println()
+        }
+    }
+
+    /**
+     * Parse tool call from text content (for models that don't use native tool calling)
+     * Looks for JSON like: {"name": "analyze_file", "arguments": {"path": "file.csv"}}
+     */
+    private fun parseTextToolCall(content: String): Pair<String, Map<String, Any?>>? {
+        // Look for JSON object with "name" and "arguments" fields
+        val jsonPattern = """\{[^{}]*"name"\s*:\s*"([^"]+)"[^{}]*"arguments"\s*:\s*(\{[^{}]*\})[^{}]*\}""".toRegex()
+        val match = jsonPattern.find(content) ?: return null
+
+        return try {
+            val toolName = match.groupValues[1]
+            val argsJson = match.groupValues[2]
+
+            val json = Json { ignoreUnknownKeys = true }
+            val argsObject = json.parseToJsonElement(argsJson).jsonObject
+
+            val args = argsObject.entries.associate { (k, v) ->
+                k to when {
+                    v is JsonPrimitive && v.isString -> v.content
+                    v is JsonPrimitive -> v.toString()
+                    else -> v.toString()
+                }
+            }
+
+            Pair(toolName, args)
+        } catch (e: Exception) {
+            null
         }
     }
 
