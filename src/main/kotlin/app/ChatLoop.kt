@@ -268,7 +268,10 @@ class ChatLoop(
     }
 
     /**
-     * Process data analysis request with tool calling
+     * Process data analysis request - simplified approach without relying on model tool calling
+     * 1. Auto-detect file in user message and load it
+     * 2. Send data to model and let it answer
+     * 3. If model writes Kotlin code, execute it automatically
      */
     private suspend fun processDataAnalysisRequest(
         userMessage: String,
@@ -278,123 +281,77 @@ class ChatLoop(
         val client = ollamaClient ?: return
         val service = analysisService ?: return
 
-        // Build tool definitions
-        val tools = service.getToolDefinitions().map { tool ->
-            OllamaToolDto(
-                type = "function",
-                function = OllamaFunctionDto(
-                    name = tool.name,
-                    description = tool.description,
-                    parameters = tool.parameters
-                )
-            )
-        }
-
-        // Build conversation
-        val messages = chatHistory.messages.map { msg ->
-            LlmMessage(msg.role, msg.content)
-        }
-
-        print("...")
+        print("[Анализ...]")
         System.out.flush()
 
-        var request = LlmRequest(
-            model = client.model,
-            systemPrompt = state.currentSystemPrompt,
-            messages = messages
-        )
+        // Step 1: Auto-detect and load file if mentioned
+        val filePattern = """([\w\-_]+\.(csv|json|log|txt))""".toRegex(RegexOption.IGNORE_CASE)
+        val fileMatch = filePattern.find(userMessage)
 
-        // Tool calling loop (max 5 iterations to prevent infinite loops)
-        var iterations = 0
-        val maxIterations = 5
-        val conversationMessages = messages.toMutableList()
-        var finalResponse = ""
+        var contextWithData = userMessage
+        var fileData: String? = null
 
-        while (iterations < maxIterations) {
-            iterations++
-
-            val response = client.sendWithTools(request, tools)
-            val content = response.message.content
-
-            // Check for structured tool calls first
-            val toolCalls = response.message.toolCalls
-
-            // Also check for text-based tool calls (qwen2.5 format)
-            val textToolCall = parseTextToolCall(content)
-
-            if (toolCalls.isNullOrEmpty() && textToolCall == null) {
-                // No tool calls - we have the final response
-                finalResponse = content
-                break
-            }
-
-            // Execute tool calls
-            print("\r[Выполняю инструменты...]")
+        if (fileMatch != null) {
+            val fileName = fileMatch.groupValues[1]
+            print("\r[Загружаю $fileName...]")
             System.out.flush()
 
-            // Handle structured tool calls
-            if (!toolCalls.isNullOrEmpty()) {
-                for (toolCall in toolCalls) {
-                    val toolName = toolCall.function.name
-                    val args = toolCall.function.arguments.entries.associate { (k, v) ->
-                        k to when (v) {
-                            is JsonPrimitive -> if (v.isString) v.content else v.toString()
-                            else -> v.toString()
-                        }
-                    }
+            val analysisResult = service.handleToolCall("analyze_file", mapOf("path" to fileName))
 
-                    println("\n  → $toolName(${args.values.firstOrNull() ?: ""})")
-
-                    val result = service.handleToolCall(toolName, args)
-
-                    conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, "Вызываю $toolName..."))
-                    conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result"))
-                }
+            if (!analysisResult.contains("не найден")) {
+                fileData = analysisResult
+                contextWithData = """
+                    |ДАННЫЕ ФАЙЛА $fileName:
+                    |$analysisResult
+                    |
+                    |ВОПРОС ПОЛЬЗОВАТЕЛЯ: $userMessage
+                    |
+                    |Проанализируй данные и ответь на вопрос. Если нужно посчитать что-то, напиши Kotlin-код в блоке ```kotlin ... ```
+                """.trimMargin()
             }
-
-            // Handle text-based tool calls (for models that don't use native tool calling)
-            if (textToolCall != null) {
-                val (toolName, args) = textToolCall
-                println("\n  → $toolName(${args.values.firstOrNull() ?: ""})")
-
-                val result = service.handleToolCall(toolName, args)
-
-                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, content))
-                conversationMessages.add(LlmMessage(ChatRole.USER, "Результат $toolName:\n$result\n\nТеперь проанализируй эти данные и ответь на вопрос пользователя."))
-            } else if (looksLikeIncompleteToolCall(content)) {
-                // Model tried to call a tool but in wrong format - prompt to retry
-                conversationMessages.add(LlmMessage(ChatRole.ASSISTANT, content))
-                conversationMessages.add(LlmMessage(ChatRole.USER, """
-                    Ты пытался вызвать инструмент, но формат неверный.
-                    Используй ТОЧНО такой формат:
-                    {"name": "analyze_file", "arguments": {"path": "filename.csv"}}
-                    или
-                    {"name": "execute_kotlin", "arguments": {"code": "data.lines().size"}}
-
-                    Попробуй ещё раз.
-                """.trimIndent()))
-            }
-
-            // Continue conversation with tool results
-            request = LlmRequest(
-                model = client.model,
-                systemPrompt = state.currentSystemPrompt,
-                messages = conversationMessages
-            )
         }
 
-        print("\r")
+        // Step 2: Send to model
+        val simplePrompt = """
+            |Ты аналитик данных. Отвечай кратко и по делу.
+            |Если нужно посчитать что-то в данных, напиши код в блоке ```kotlin ... ```
+            |Переменная `data` содержит содержимое файла как строку.
+        """.trimMargin()
 
-        if (finalResponse.isNotBlank()) {
-            println()
-            println(finalResponse)
-            println()
-            chatHistory.addMessage(ChatRole.ASSISTANT, finalResponse)
-        } else {
-            println()
-            println("Модель не вернула финальный ответ после $maxIterations итераций")
-            println()
+        val request = LlmRequest(
+            model = client.model,
+            systemPrompt = simplePrompt,
+            messages = listOf(LlmMessage(ChatRole.USER, contextWithData))
+        )
+
+        print("\r[Думаю...]      ")
+        System.out.flush()
+
+        val response = client.send(request)
+        var answer = response.text
+
+        // Step 3: If model wrote Kotlin code, execute it
+        val codePattern = """```kotlin\s*([\s\S]*?)```""".toRegex()
+        val codeMatch = codePattern.find(answer)
+
+        if (codeMatch != null && fileData != null) {
+            val code = codeMatch.groupValues[1].trim()
+            print("\r[Выполняю код...]")
+            System.out.flush()
+
+            val execResult = service.handleToolCall("execute_kotlin", mapOf("code" to code))
+
+            // Replace code block with result or append result
+            answer = answer.replace(codeMatch.value, "")
+            answer = "$answer\n\n**Результат:** $execResult"
         }
+
+        print("\r                    \r")
+
+        println()
+        println(answer.trim())
+        println()
+        chatHistory.addMessage(ChatRole.ASSISTANT, answer.trim())
     }
 
     /**
