@@ -276,6 +276,58 @@ class OllamaClient(
         }
 
         val responseText = httpResponse.body<String>()
-        return json.decodeFromString(OllamaResponseWithToolsDto.serializer(), responseText)
+        return parseOllamaStreamingToolResponse(responseText)
+    }
+
+    /**
+     * Parse Ollama streaming response with tool calls
+     * Accumulates all message chunks and returns the final complete response
+     */
+    private fun parseOllamaStreamingToolResponse(responseText: String): OllamaResponseWithToolsDto {
+        val lines = responseText.trim().lines().filter { it.isNotBlank() }
+
+        if (lines.isEmpty()) {
+            throw IllegalStateException("Empty response from Ollama")
+        }
+
+        // Accumulate message content from all chunks
+        val messageBuilder = StringBuilder()
+        var finalDto: OllamaResponseWithToolsDto? = null
+        var toolCalls: List<OllamaToolCallDto>? = null
+
+        for (line in lines) {
+            try {
+                val dto = json.decodeFromString(OllamaResponseWithToolsDto.serializer(), line)
+
+                // Accumulate message content
+                if (dto.message.content.isNotBlank()) {
+                    messageBuilder.append(dto.message.content)
+                }
+
+                // Capture tool calls if present
+                if (dto.message.toolCalls != null && dto.message.toolCalls.isNotEmpty()) {
+                    toolCalls = dto.message.toolCalls
+                }
+
+                // Keep the last dto with done=true for metadata
+                if (dto.done) {
+                    finalDto = dto
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to parse tool response line: $line", e)
+                // Continue to next line
+            }
+        }
+
+        // Use the final dto with accumulated message
+        val result = finalDto ?: throw IllegalStateException("No complete response from Ollama")
+
+        return result.copy(
+            message = OllamaMessageWithToolsDto(
+                role = result.message.role,
+                content = messageBuilder.toString(),
+                toolCalls = toolCalls ?: result.message.toolCalls
+            )
+        )
     }
 }
