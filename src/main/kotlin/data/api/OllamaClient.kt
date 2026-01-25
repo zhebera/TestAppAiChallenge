@@ -251,4 +251,31 @@ class OllamaClient(
         // Rough estimate: 1 token ≈ 4 characters (for English text)
         return text.length / 4
     }
+
+    /**
+     * Send a request with tool definitions
+     * Returns either a text response or tool calls
+     */
+    suspend fun sendWithTools(
+        request: LlmRequest,
+        tools: List<OllamaToolDto>
+    ): OllamaResponseWithToolsDto {
+        logger.info("Ollama request with tools: model=$model, tools=${tools.size}")
+
+        val requestBody = OllamaRequestWithToolsDto(
+            model = model,
+            messages = buildMessages(request),
+            stream = false,
+            tools = tools,
+            options = request.temperature?.let { OllamaOptionsDto(temperature = it) }
+        )
+
+        val httpResponse = http.post("$host$CHAT_ENDPOINT") {
+            contentType(ContentType.Application.Json)
+            setBody(requestBody)
+        }
+
+        val responseText = httpResponse.body<String>()
+        return json.decodeFromString(OllamaResponseWithToolsDto.serializer(), responseText)
+    }
 }

@@ -2,6 +2,7 @@ package org.example.data.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Ollama API Request DTO
@@ -92,5 +93,70 @@ data class OllamaStreamEventDto(
     val message: OllamaMessageDto? = null,
     val done: Boolean,
     @SerialName("total_duration") val totalDuration: Long? = null,
+    @SerialName("eval_count") val evalCount: Int? = null
+)
+
+/**
+ * Tool definition for Ollama API
+ */
+@Serializable
+data class OllamaToolDto(
+    val type: String = "function",
+    val function: OllamaFunctionDto
+)
+
+@Serializable
+data class OllamaFunctionDto(
+    val name: String,
+    val description: String,
+    val parameters: JsonObject
+)
+
+/**
+ * Tool call in response
+ */
+@Serializable
+data class OllamaToolCallDto(
+    val function: OllamaFunctionCallDto
+)
+
+@Serializable
+data class OllamaFunctionCallDto(
+    val name: String,
+    val arguments: JsonObject
+)
+
+/**
+ * Extended request with tools
+ */
+@Serializable
+data class OllamaRequestWithToolsDto(
+    val model: String,
+    val messages: List<OllamaMessageDto>,
+    val stream: Boolean = false,
+    val tools: List<OllamaToolDto>? = null,
+    val options: OllamaOptionsDto? = null
+)
+
+/**
+ * Extended message with tool calls
+ */
+@Serializable
+data class OllamaMessageWithToolsDto(
+    val role: String,
+    val content: String = "",
+    @SerialName("tool_calls") val toolCalls: List<OllamaToolCallDto>? = null
+)
+
+/**
+ * Extended response with tool calls
+ */
+@Serializable
+data class OllamaResponseWithToolsDto(
+    val model: String,
+    val message: OllamaMessageWithToolsDto,
+    val done: Boolean,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("prompt_eval_count") val promptEvalCount: Int? = null,
     @SerialName("eval_count") val evalCount: Int? = null
 )
