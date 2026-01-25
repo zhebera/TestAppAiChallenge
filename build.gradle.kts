@@ -37,6 +37,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.slf4j:slf4j-nop:2.0.13")
 
+    // Kotlin Scripting (JSR-223) for KotlinExecutor
+    implementation("org.jetbrains.kotlin:kotlin-scripting-jsr223:2.2.20")
+
     // Exposed (SQLite ORM)
     implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
     implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion")
