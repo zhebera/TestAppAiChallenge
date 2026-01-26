@@ -27,6 +27,9 @@ import org.example.domain.models.LlmMessage
 import org.example.presentation.ConsoleInput
 import org.example.utils.SYSTEM_PROMPT_DATA_ANALYSIS
 import org.example.utils.SYSTEM_PROMPT_WITH_SOURCES
+import org.example.config.DeveloperProfile
+import org.example.config.PersonalizedPromptBuilder
+import org.example.config.ProfileLoader
 
 class ChatLoop(
     private val console: ConsoleInput,
@@ -39,12 +42,18 @@ class ChatLoop(
     private val analysisService: DataAnalysisService? = null
 ) {
     private val commandRegistry = CommandRegistry(ragService, useCases.helpClient, useCases.mainClient, useCases.pipelineClient)
+    private val developerProfile: DeveloperProfile? = ProfileLoader.load()
 
     suspend fun run() {
         printWelcome()
 
+        val basePrompt = SYSTEM_PROMPT_WITH_SOURCES
+        val enrichedPrompt = developerProfile?.let {
+            basePrompt + PersonalizedPromptBuilder.build(it)
+        } ?: basePrompt
+
         val state = ChatState(
-            currentSystemPrompt = SYSTEM_PROMPT_WITH_SOURCES,
+            currentSystemPrompt = enrichedPrompt,
             currentTemperature = null,
             currentMaxTokens = AppConfig.DEFAULT_MAX_TOKENS
         )
@@ -102,6 +111,9 @@ class ChatLoop(
         println("  /review-pr      - AI ревью Pull Request (с RAG контекстом)")
         println("  /auto-pr        - Создать PR с автоматическим ревью (полный цикл)")
         println()
+        if (developerProfile != null) {
+            println("  [Профиль загружен: ${developerProfile.name}]")
+        }
     }
 
     private fun printSessionInfo(chatHistory: ChatHistory) {
