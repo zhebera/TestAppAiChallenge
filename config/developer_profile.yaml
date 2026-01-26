@@ -1,0 +1,76 @@
+# Профиль разработчика для персонализации агента
+name: "Андрей"
+role: "Senior Android Developer"
+company: "VK"
+project: "VK Видео"
+expertise_level: "senior"
+
+# Основной стек
+primary_stack:
+  - Kotlin
+  - Android
+  - Jetpack Compose
+  - RxJava/RxKotlin
+  - Clean Architecture
+  - MVI
+
+# Дополнительный стек (для pet-проектов)
+secondary_stack:
+  - KMP
+  - Ktor
+  - SQLDelight
+  - Unity/C#
+
+# Архитектурные предпочтения
+architecture:
+  patterns:
+    - Clean Architecture
+    - MVI
+    - Repository Pattern
+  principles:
+    - SOLID
+    - YAGNI
+    - Offline-first
+  structure: "data → domain → presentation"
+
+# Предпочтения в общении
+communication:
+  style: "concrete"
+  feedback: "honest"
+  explanations: "minimal"
+  language: "ru"
+
+# Стиль работы
+workflow:
+  planning: "detailed"
+  session_length: "30-60min"
+  ai_assisted: true
+
+# Pet-проекты
+pet_projects:
+  - name: "ISKAMED"
+    description: "Мобильное приложение для аптеки"
+    stack:
+      - KMP
+      - Ktor
+      - Ksoup
+      - SQLDelight
+      - Firebase
+  - name: "Unity Games"
+    description: "Game dev как хобби"
+    stack:
+      - Unity
+      - C#
+      - MVP
+      - Service Locator
+
+# Интересы
+interests:
+  - "Автоматизация с AI"
+  - "Неоцифрованные настольные игры"
+  - "Кроссплатформенная разработка"
+
+# Области роста
+growth_areas:
+  - "KMP (в процессе освоения)"
+  - "Backend/DevOps"
