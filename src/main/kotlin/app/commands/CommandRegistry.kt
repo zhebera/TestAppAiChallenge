@@ -13,6 +13,7 @@ class CommandRegistry(
     private val commands: List<Command> = listOf(
         ExitCommand(),
         NewSessionCommand(),
+        ProfileCommand(),
         StatsCommand(),
         TemperatureCommand(),
         MaxTokensCommand(),
