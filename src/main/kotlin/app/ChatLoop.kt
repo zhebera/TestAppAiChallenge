@@ -110,6 +110,7 @@ class ChatLoop(
         println("  /help [вопрос]  - интеллектуальный помощник по кодбазе")
         println("  /review-pr      - AI ревью Pull Request (с RAG контекстом)")
         println("  /auto-pr        - Создать PR с автоматическим ревью (полный цикл)")
+        println("  /profile        - показать профиль разработчика")
         println()
         if (developerProfile != null) {
             println("  [Профиль загружен: ${developerProfile.name}]")
