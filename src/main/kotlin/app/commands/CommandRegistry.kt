@@ -21,7 +21,8 @@ class CommandRegistry(
         ChangePromptCommand(),
         McpControlCommand(),  // Управление локальными MCP серверами
         RagCommand(ragService),
-        HelpCommand(ragService, helpClient)
+        HelpCommand(ragService, helpClient),
+        VoiceCommand()  // Голосовой ввод
     ) + (if (mainLlmClient != null) listOf(
         ReviewPrCommand(mainLlmClient, ragService),  // Ревью PR
         AutoPrCommand(mainLlmClient, ragService)     // Автоматический PR с ревью

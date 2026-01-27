@@ -31,6 +31,7 @@ sealed class CommandResult {
     data object Continue : CommandResult()
     data object Exit : CommandResult()
     data object NotHandled : CommandResult()
+    data class VoiceInput(val text: String) : CommandResult()
 }
 
 interface Command {

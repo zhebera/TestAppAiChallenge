@@ -92,6 +92,7 @@ class ChatLoop(
                 CommandResult.Exit -> break
                 CommandResult.Continue -> continue
                 CommandResult.NotHandled -> processUserMessage(text, context)
+                is CommandResult.VoiceInput -> processUserMessage(result.text, context)
             }
         }
     }
@@ -108,6 +109,7 @@ class ChatLoop(
         println("  /mcp            - управление MCP серверами (wikipedia, summarizer, ...)")
         println("  /rag            - RAG: поиск по локальной базе знаний")
         println("  /help [вопрос]  - интеллектуальный помощник по кодбазе")
+        println("  /voice          - голосовой ввод (3 сек тишины = стоп)")
         println("  /review-pr      - AI ревью Pull Request (с RAG контекстом)")
         println("  /auto-pr        - Создать PR с автоматическим ревью (полный цикл)")
         println("  /profile        - показать профиль разработчика")
