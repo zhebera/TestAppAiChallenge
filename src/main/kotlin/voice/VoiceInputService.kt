@@ -33,7 +33,7 @@ class VoiceInputService(
      * Recording stops after [silenceTimeout] seconds of silence.
      */
     suspend fun record(): Result<File> = withContext(Dispatchers.IO) {
-        val audioFile = File(tempDir, "voice_input_${System.currentTimeMillis()}.wav")
+        val audioFile = File.createTempFile("voice_input_", ".wav", tempDir)
 
         try {
             val process = ProcessBuilder(
@@ -48,13 +48,16 @@ class VoiceInputService(
                 .redirectErrorStream(true)
                 .start()
 
+            // Capture output for better error messages
+            val output = process.inputStream.bufferedReader().readText()
             val exitCode = process.waitFor()
 
             if (exitCode == 0 && audioFile.exists() && audioFile.length() > 0) {
                 Result.success(audioFile)
             } else {
                 audioFile.delete()
-                Result.failure(Exception("Recording failed (exit code: $exitCode)"))
+                val errorDetail = if (output.isNotBlank()) ": $output" else ""
+                Result.failure(Exception("Recording failed (exit code: $exitCode)$errorDetail"))
             }
         } catch (e: Exception) {
             audioFile.delete()
@@ -100,7 +103,7 @@ class VoiceInputService(
                 }
             } else {
                 audioFile.delete()
-                txtFile.delete()
+                if (txtFile.exists()) txtFile.delete()
                 Result.failure(Exception("Transcription failed: $output"))
             }
         } catch (e: Exception) {
